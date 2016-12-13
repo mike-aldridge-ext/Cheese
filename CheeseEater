@@ -1,0 +1,93 @@
+#!/usr/bin/ksh
+function Log {
+	L_TEXT=$*
+	L_TS=$(date +'%F %T')
+	L_DATE=$(date +'%F')
+	print - "$L_TS (Cheese_Eater:$C_ENV) $L_TEXT" >> Cheese_Eater_${L_DATE}.log
+}
+
+C_MYNAME=${0##*/}
+C_ENV="SBP1"
+
+while [[ "$1" != "" ]];
+do
+	if [[ $1 == "-env" ]]; then
+		shift
+		if [[ "$1" == "" ]]; then
+			Log "No environment specified"
+			exit 1
+		fi
+		C_ENV=$1
+		shift
+	else
+		Log "Unexpected startup parameter"
+		exit 2
+	fi
+done
+
+if [[ $C_ENV == "SBP1" ]]; then
+	C_MODE="PROD"
+else
+	C_MODE="TEST"
+fi
+
+C_EXTR_FILE="${WNINBOUND}/C.SB.EXTRACT.${C_MODE}"
+Log "To infinity and beyond...."
+while [[ 0 -eq 0 ]];
+do
+	
+	#Log "Looking for ${C_EXTR_FILE}.* files"
+    for C_EXTR_FILE_TS in ${C_EXTR_FILE}.*;
+    do
+        if [[ -f ${C_EXTR_FILE_TS} ]]; then
+            Log "File found: $C_EXTR_FILE_TS"
+
+			let COUNTER=60
+			while [[ -f ${WNPARM}/${C_MYNAME}.hold ]];
+			do
+				if [[ $COUNTER -ge 60 ]]; then
+					Log "### ${C_MYNAME} is on HOLD - use RELEASE to continue... ###"
+					let COUNTER=0
+				fi
+				let COUNTER=COUNTER+1
+				sleep 1
+			done
+			
+			if [[ -f ${C_EXTR_FILE_TS} ]]; then
+				let C_WC=$(wc -l ${C_EXTR_FILE_TS} | awk '{print $1}')
+				if [[ $C_WC -eq 2 ]]; then
+					Log "File is empty - removing..."
+					rm -f ${C_EXTR_FILE_TS}
+				else
+					java -classpath $MLPATH MapperLoader.RawLoad.B24Extract $PROPERTIESPATH/ml.properties $PROPERTIESPATH/partition.properties ${C_EXTR_FILE_TS} > ${LOG}/CheeseEater.log
+					let STATUS=$?
+					if [[ ${STATUS} -eq 0 ]]; then
+						Log "MapperLoader Completed with Status: ${STATUS}"
+						grep Records ${LOG}/CheeseEater.log | egrep -v 0^ |
+						while read LINE;
+						do
+							Log "${LINE}"
+						done
+						mv -f ${C_EXTR_FILE_TS} ${WNDATA}/.
+					else
+						cat $LOG/CheeseEater.log |
+						while read LINE;
+						do
+							Log "${LINE}"
+						done
+						Log "### MapperLoader Completed with Status: ${STATUS} ###"
+						touch ${WNPARM}/${C_MYNAME}.hold
+						Log "### CheeseEater is now on HOLD ###"
+						Log "### Fix issue, or remove extract file, and RELEASE ###"
+					fi
+				fi
+			fi
+        fi
+    done
+    sleep 60
+done
+
+Log "Cheese Successfully Grated"
+######################
+# End Of Script
+######################
