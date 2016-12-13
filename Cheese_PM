@@ -1,27 +1,34 @@
 #!/bin/ksh
-function Usage {
-	print $1
-	print ""
-	print "'Cheese' is a utiliy to combine and strip three extract files."
-	print "The business dates are appended to find the three actual file names to use:"
-	print "Previous Day's (-2), Day just finished (-1) and New Day's (0)"
-	print "The three files are combined (with one header from -1 file,"
-	print "followed by all the data records, followed by one trailer."
-	print "(Note: the RECON file does not have Header/Trailer records.)"
-	print "The resulting file is then stripped to give a 8pm-8pm period."
-	print "Finally, the Minus Two file is removed, and the Minus One file"
-	print "is renamed to become tomorrow's Minus Two file."
-	print ""
-	print "Normally 'Cheese' is run with no parameters.  Today's date is assumed"
-	print "to be the correct date to use.  Yesterday's, today's and tomorrow's"
-	print "TLF files are required.  To run for a specific date, all three dates"
-	print "must be entered in sequence.  e.g., to run for Sep 21st, enter"
-	print "Cheese 2016-09-20 2016-09-21 2016-09-22"
-    print ""
-	print "The Production envionment SBP1 is assumed."
-	print "This can be overridden using -env <ENV>"
-	print "where <ENV> can be PM, SBD1, SBM1 or SBT1"
-	exit 1
+#function Usage {
+#	print $1
+#	print ""
+#	print "'Cheese2' is a utiliy to combine and strip three extract files."
+#	print "The business dates are appended to find the three actual file names to use:"
+#	print "Previous Day's (-2), Day just finished (-1) and New Day's (0)"
+#	print "The three files are combined (with one header from -1 file,"
+#	print "followed by all the data records, followed by one trailer."
+#	print "(Note: the RECON file does not have Header/Trailer records.)"
+#	print "The resulting file is then stripped to give a 8pm-8pm period."
+#	print "Finally, the Minus Two file is removed, and the Minus One file"
+#	print "is renamed to become tomorrow's Minus Two file."
+#	print ""
+#	print "Normally 'Cheese' is run with no parameters.  Today's date is assumed"
+#	print "to be the correct date to use.  Yesterday's, today's and tomorrow's"
+#	print "TLF files are required.  To run for a specific date, all three dates"
+#	print "must be entered in sequence.  e.g., to run for Sep 21st, enter"
+#	print "Cheese 2016-09-20 2016-09-21 2016-09-22"
+#   print ""
+#	print "The Production envionment SBP1 is assumed."
+#	print "This can be overridden using -env <ENV>"
+#	print "where <ENV> can be PM, SBD1, SBM1 or SBT1"
+#	exit 1
+#}
+
+function Log {
+	L_TEXT=$*
+	L_TS=$(date +'%F %T')
+	L_DATE=$(date +'%F')
+	print - "$L_TS (Cheese3_PM:$C_ENV) $L_TEXT" >> ${C_PWD}/Cheese_PM_${L_DATE}.log
 }
 
 function Strip {
@@ -33,163 +40,388 @@ function Strip {
 	shift
 	S_TIME=$1
 	shift
-	ls -etr ${S_IN}
-	digest -a md5 ${S_IN}
-	$WNSCRIPT/STRIPPER.php -in ${S_IN} -out ${S_OUT} -date ${S_DATE} -time ${S_TIME} -log $LOG/STRIPPER.${S_DATE}.log -stats $DATA/STRIPPER.stats
+	let WC=$(wc -l ${S_IN} | awk '{print $1}')
+	let FS=$(ls -e ${S_IN} | awk '{print $5}')
+	MD5=$(digest -a md5 ${S_IN})
+	Log "Unstripped file: ${S_IN}, Records: ${WC}, EOF: ${FS}, Digest: ${MD5}"
+	$WNSCRIPT/STRIPPER3.php -in ${S_IN} -out ${S_OUT} -date ${S_DATE} -time ${S_TIME} -log $LOG/C.STRIPPER.${S_DATE}.log -stats $LOG/C.STRIPPER.stats -raw
+	#let WC=$(wc -l ${S_OUT} | awk '{print $1}')
+	#let FS=$(ls -e ${S_OUT} | awk '{print $5}')
+	#MD5=$(digest -a md5 ${S_OUT})
+	#Log "Stripped file: ${S_OUT}, Transactions: ${WC}, EOD: ${FS}, Digest: ${MD5}"
 }
 
-function Log {
-	TEXT=$1
-	TS=$(date +'%Y-%m-%d %H:%M:%S')
-	print - $TS $TEXT
-}
+function Substr {
+    # $1 = string to split
+    # $2 = character to extract from (1 is 1st character)
+    # $3 = number of characters to extract
+    # returns the extracted substring.
+    # If $3 is omitted, it defaults to all characters from $2
+    # If $2 is omitted also, it defaults to 1 - this returns the whole string.
 
-function WaitFT {
-	TLF_FILE=$1
-	shift
-	Log "Waiting for ${TLF_FILE} to be copied from BASE24"
-	while [[ ! -f ${TLF_FILE} ]];
-	do
-		sleep 10
-	done
-	Log "File being copied"
-	let COPYING=1
-	while [[ ${COPYING} -eq 1 ]];
-	do
-		sleep 10
-		tail -1 ${TLF_FILE} | egrep -s "^000086FTTLF"
-		COPYING=$?
-		FSIZE=$(ls -e ${TLF_FILE} | awk '{print $5}')
-		Log "Current EOF: ${FSIZE}"
-	done
-	Log "Copy of ${TLF_FILE} Complete"
-}
-
-function WaitEOF {
-	RECON_FILE=$1
-	shift
-	Log "Waiting for ${RECON_FILE} to be copied from BASE24"
-	while [[ ! -f ${RECON_FILE} ]];
-	do
-		sleep 10
-	done
-	Log "File being copied"
-	let COPYING=1
-	PFSIZE=$(ls -e ${RECON_FILE} | awk '{print $5}')
-	while [[ ${COPYING} -eq 1 ]];
-	do
-		sleep 30
-		FSIZE=$(ls -e ${RECON_FILE} | awk '{print $5}')
-		if [[ $FSIZE == $PFSIZE ]]; then
-			let COPYING=0
-		else
-			PFSIZE=$FSIZE
-		fi
-		Log "Current EOF: ${FSIZE}"
-	done
-	Log "Copy of ${RECON_FILE} Complete"
-}
-
-function Check_Disc {
-    # 2 arguments; Capacity upper, Volume to check
-    # Check and show disc usage
-    let CRITICAL=1
-    # CAPACITYN=${CAPACITY%\%}
-	CAPACITYN=$1
-	shift
-	VOL=$1
+    SS_STR=$1
     shift
-	while [[ CRITICAL -eq 1 ]]; do
-		let CNT=0
-		df -h $VOL |
-		while read LINE
-		do
-			LINES[$CNT]=$LINE
-			let CNT=CNT+1
-		done
-		LINE=${LINES[1]}
-		DFCAP=$(echo $LINE | awk '{print $5}')
-		DFCAP=${DFCAP%\%}
-		if [[ $DFCAP -gt $CAPACITYN ]]; then
-			DFMNT=$(echo $LINE | awk '{print $6}')
-			Log "### Mount $DFMNT is at $DFCAP% of capacity ###"
-			Log "### Mount $DFMNT MUST BE UNDER $CAPACITY% OF CAPACITY for Cheese_PM to run ###"
-			Log "### Cheese_PM will suspend until enough space is available ###"
-			Log "### Sleeping for 60 seconds... ###"
-			sleep 60
-		else
-			let CRITICAL=0
-		fi
-    done
-    Log "Disk space is healthy (threshold is $CAPACITYN% on $VOL)"
+    if [[ $1 != "" ]]; then
+        SS_FROM=$1
+        shift
+    else
+        SS_FROM=1
+    fi
+    if [[ $1 != "" ]]; then
+        SS_LEN=$1
+        shift
+    else
+        SS_LEN=${#SS_STR}
+        let SS_LEN=SS_LEN-SS_FROM+1
+    fi
+    let SS_TO=SS_FROM+SS_LEN-1
+    echo $(echo ${SS_STR} | cut -c${SS_FROM}-${SS_TO})
 }
 
-Log "PM Cheese Starting to Grate"
-Log "Cheese_PM v0.4 26th October 2016"
-Log "(c) AEVI 2016"
+function Scp {
+	S_SRC=$1
+	shift
+	S_DST=$2
+	shift
 
-print ""
-print "       #####                                            ######  #     #"
-print "     #     #  #    #  ######  ######   ####   ######    #     # ##   ##"
-print "    #        #    #  #       #       #       #          #     # # # # #"
-print "   #        ######  #####   #####    ####   #####  ###  ######  #  #  #"
-print "  #        #    #  #       #            #  #            #       #     #"
-print " #     #  #    #  #       #       #    #  #             #       #     #"
-print " #####   #    #  ######  ######   ####   ######         #       #     #"
-print ""
+	if [[ ${DR_NAME} == "LOGONLY" ]]; then
+		Log "No need to SCP ${S_SRC} - running LOGONLY"
+	elif [[ ${DR_NAME} == ${MY_NAME} ]]; then
+		Log "No need to SCP ${S_SRC} - running on Standby Box"
+	else
+		Log "SCPing ${S_SRC} to ${DR_NAME}:${S_DST} under username ${C_USER}"
+		scp -p ${S_SRC} ${C_USER}@${DR_NAME}:${S_DST}
+		let STATUS=$?
+		if [[ ${STATUS} -ne 0 ]]; then
+			Log "Unable to scp ${S_SRC} to ${DR_NAME}:${S_DST} (scp failed with status: ${STATUS})"
+		fi
+	fi
+}
 
-if [[ "$1" == "-?" || "$1" == "-help" ]]; then
-	Usage "Cheese Usage"
-fi
+function Ssh {
+	S_CMD=$1
+	shift
+
+	if [[ ${DR_NAME} == "LOGONLY" ]]; then
+		Log "No need to SSH ${S_CMD} - running LOGONLY"
+	elif [[ ${DR_NAME} == ${MY_NAME} ]]; then
+		Log "No need to SSH ${S_CMD} - running on Standby Box"
+	else
+		ssh -q -l $C_USER $DR_NAME "$S_CMD" # q=quiet, l=userid
+		let STATUS=$?
+		if [[ ${STATUS} -ne 0 ]]; then
+			Log "Unable to SSH ${S_CMD} to ${DR_NAME} (ssh failed with status: ${STATUS})"
+		fi
+	fi
+}
+
+function FebDays {
+	FD_YYYY=$1
+	shift
+	let FD_YEAR_4=FD_YYYY%4
+	let FD_YEAR_100=FD_YYYY%100
+	let FD_YEAR_400=FD_YYYY%400
+	if [[ ( ${FD_YEAR_4} -eq 0 && ${FD_YEAR_100} -ne 0 ) || ${FD_YEAR_400} -eq 0 ]]; then
+		let FD_DAYS=29
+	else
+		let FD_DAYS=28
+	fi
+	echo ${FD_DAYS}
+}
+
+function AddDays {
+	AD_YYYY=$1
+	shift
+	AD_MM=$1
+	shift
+	AD_DD=$1
+	shift
+	AD_DAYS=$1
+	shift
+
+	set -A AD_NUM_DAYS 0 31 28 31 30 31 30 31 31 30 31 30 31
+	AD_NUM_DAYS[2]=$(FebDays ${AD_YYYY})
+
+	let AD_DD=AD_DD+AD_DAYS
+	while [[ ${AD_DD} -gt ${AD_NUM_DAYS[${AD_MM}]} || ${AD_DD} < 1 ]];
+	do
+		if [[ ${AD_DD} < 1 ]]; then
+			let AD_MM=AD_MM-1
+			if [[ ${AD_MM} -lt 1 ]]; then
+				let AD_MM=12
+				let AD_YYYY=AD_YYYY-1
+				AD_NUM_DAYS[2]=$(FebDays ${AD_YYYY})
+			fi
+			let AD_DD=AD_DD+${AD_NUM_DAYS[${AD_MM}]}
+		else
+			let AD_DD=AD_DD-${AD_NUM_DAYS[${AD_MM}]}
+			let AD_MM=AD_MM+1
+			if [[ ${AD_MM} -gt 12 ]]; then
+				let AD_MM=1
+				let AD_YYYY=AD_YYYY+1
+				AD_NUM_DAYS[2]=$(FebDays ${AD_YYYY})
+			fi
+		fi
+	done
+	AD_DATE=$(printf "%4.4d-%2.2d-%2.2d" ${AD_YYYY} ${AD_MM} ${AD_DD})
+	echo $AD_DATE
+}
+
+function AddDaysStr {
+	ADS_DATE=$1 # yyyy-mm-dd
+	shift
+	ADS_DAYS=$1
+	shift
+
+	ADS_YYYY=$(Substr ${ADS_DATE} 1 4)
+	  ADS_MM=$(Substr ${ADS_DATE} 6 2)
+	  ADS_DD=$(Substr ${ADS_DATE} 9 2)
+	
+	ADS_DATE=$(AddDays ${ADS_YYYY} ${ADS_MM} ${ADS_DD} ${ADS_DAYS})
+	echo ${ADS_DATE}
+}
+
+function HandleComplete {
+	Log "Handle Complete....."
+	#tail -1 ${BASE_FILE_TS} >> ${BASE_FILE}.${BUS_DATE}
+	mv -f ${BASE_FILE}.${BUS_DATE} ${BASE_FILE}.${BUS_DATE}.EOD
+	Ssh "mv -f ${BASE_FILE}.${BUS_DATE} ${BASE_FILE}.${BUS_DATE}.EOD"
+	#Scp ${BASE_FILE}.${BUS_DATE} ${WNINBOUND}
+	Log "Extract of ${BASE_FILE} for ${BUS_DATE} is complete"
+	let WC=$(wc -l ${BASE_FILE}.${BUS_DATE}.EOD | awk '{print $1}')
+	let FS=$(ls -e ${BASE_FILE}.${BUS_DATE}.EOD | awk '{print $5}')
+	MD5=$(digest -a md5 ${BASE_FILE}.${BUS_DATE}.EOD)
+	Log "Combined Extract File: ${BASE_FILE}.${BUS_DATE}.EOD, Transactions: ${WC}, EOF: ${FS}, Digest: ${MD5}"
+	mv -f ${BASE_FILE}.${BUS_DATE}.EOD ${BASE_FILE}.EOD
+	Ssh "mv -f ${BASE_FILE}.${BUS_DATE}.EOD ${BASE_FILE}.EOD"
+	if [[ ${BASE_FILE} == *.D.* ]]; then
+		ALT_BASE_FILE=$(print $BASE_FILE | sed 's/\.D\./\.H\./g')
+		FIN_BASE_FILE=$(print $BASE_FILE | sed 's/\.D\./\./g')
+	else
+		ALT_BASE_FILE=$(print $BASE_FILE | sed 's/\.H\./\.D\./g')
+		FIN_BASE_FILE=$(print $BASE_FILE | sed 's/\.H\./\./g')
+	fi
+	if [[ -f ${ALT_BASE_FILE}.EOD ]]; then
+		Log "Both Hounslow & Docklands versions are complete"
+		let WCA=$(wc -l ${ALT_BASE_FILE}.EOD | awk '{print $1}')
+		let FSA=$(ls -e ${ALT_BASE_FILE}.EOD | awk '{print $5}')
+		MD5=$(digest -a md5 ${ALT_BASE_FILE}.EOD)
+		if [[ $WC -ne $WCA || $FS -ne $FSA ]]; then
+			Log "Alternate Extract File: ${ALT_BASE_FILE}.EOD, Transactions: ${WCA}, EOF: ${FSA}, Digest: ${MD5}"
+			if [[ $BASE_FILE == *RECON* ]]; then
+				SORT_KEYS="1.1,1.69"
+			else
+				# 9-27 is the timestamp, 42-49 is the term-id, and 66-84 is the pan
+				SORT_KEYS="1.9,1.27 -k 2.42,2.49 -k 3.66,3.84"
+			fi
+			sort -k ${SORT_KEYS} -o ${FIN_BASE_FILE} -u ${BASE_FILE}.EOD ${ALT_BASE_FILE}.EOD
+			#rm -f ${BASE_FILE} ${ALT_BASE_FILE}
+			mv -f ${BASE_FILE}.EOD ${TDATA}/Cheese/.
+			mv -f ${ALT_BASE_FILE}.EOD $TDATA/Cheese/.
+			Ssh "rm -f ${BASE_FILE}.EOD ${ALT_BASE_FILE}.EOD"
+			let WCF=$(wc -l ${FIN_BASE_FILE} | awk '{print $1}')
+			let FSF=$(ls -e ${FIN_BASE_FILE} | awk '{print $5}')
+			MD5=$(digest -a md5 ${FIN_BASE_FILE})
+			Log "Merged Extract File: ${FIN_BASE_FILE}, Transactions: ${WCF}, EOF: ${FSF}, Digest: ${MD5}"
+		else
+			Log "Combined and Alternate Extract Files are the same"
+			mv -f ${BASE_FILE}.EOD ${FIN_BASE_FILE}
+			Ssh "mv -f ${BASE_FILE}.EOD ${FIN_BASE_FILE}"
+			rm -f ${ALT_BASE_FILE}.EOD
+			Ssh "rm -f ${ALT_BASE_FILE}.EOD"
+		fi
+
+		if [[ $BASE_FILE != *RECON* ]]; then
+			FH_DT="$(Substr ${BUS_DATE} 3 2)$(Substr ${BUS_DATE} 6 2)$(Substr ${BUS_DATE} 9 2)"
+			FH_TM="$(Substr ${LATE_CYCLE_TIME} 1 2)$(Substr ${LATE_CYCLE_TIME} 4 2)$(Substr ${LATE_CYCLE_TIME} 7 2)00"
+			IFS='%'
+			C_FH="000094FHA${FH_DT}${FH_TM}${C_ENV}10TLF                                        000000000 -00000000001"
+			C_FT="000086FTTLF                                         0000000000000000000000000000000000"
+			print ${C_FH} > ${FIN_BASE_FILE}.temp
+			cat ${FIN_BASE_FILE} >> ${FIN_BASE_FILE}.temp
+			print ${C_FT} >> ${FIN_BASE_FILE}.temp
+			unset IFS
+			mv ${FIN_BASE_FILE}.temp ${FIN_BASE_FILE}
+			Log "Copying ${FIN_BASE_FILE} to ${WNDATA}"
+			cp -p ${FIN_BASE_FILE} ${WNDATA}/.
+			Scp ${FIN_BASE_FILE} ${WNDATA}
+		fi
+	fi
+}
+
+function CreateLoadFile {
+	Log "Creating Load File....."
+	FH_DT="$(Substr ${FILE_TS}  3 2)$(Substr ${FILE_TS}  6 2)$(Substr ${FILE_TS}  9 2)"
+	FH_TM="$(Substr ${FILE_TS} 12 2)$(Substr ${FILE_TS} 15 2)$(Substr ${FILE_TS} 18 2)00"
+	IFS='%'
+	C_FH="000094FHA${FH_DT}${FH_TM}${C_ENV}10TLF                                        000000000 -00000000001"
+	C_FT="000086FTTLF                                         0000000000000000000000000000000000"
+	LOAD_FILE="C.SB.EXTRACT.${C_MODE}.${FILE_TS}"
+	print ${C_FH} > ${LOAD_FILE}.temp
+	cat ${BASE_FILE_TS}.stripped >> ${LOAD_FILE}.temp
+	print ${C_FT} >> ${LOAD_FILE}.temp
+	unset IFS
+	mv ${LOAD_FILE}.temp ${LOAD_FILE}
+	Log "Load file ${LOAD_FILE} created"
+}
+
+function HandleUnprocessed {
+	Log "Handle Unprocessed....."
+	let WCU=$(wc -l ${BASE_FILE_TS} | awk '{print $1}')
+	let WCU=WCU-2
+	let FSU=$(ls -e ${BASE_FILE_TS} | awk '{print $5}')
+	MD5=$(digest -a md5 ${BASE_FILE_TS})
+	Log "Raw Extract File: ${BASE_FILE_TS}, Transactions: ${WCU}, EOF: ${FSU}, Digest: ${MD5}"
+	Log "Stripping file"
+	Strip ${BASE_FILE_TS} ${BASE_FILE_TS}.stripped ${BUS_DATE} ${LATE_CYCLE_TIME}
+	let WCS=$(wc -l ${BASE_FILE_TS}.stripped | awk '{print $1}')
+	let FSS=$(ls -e ${BASE_FILE_TS}.stripped | awk '{print $5}')
+	MD5=$(digest -a md5 ${BASE_FILE_TS}.stripped)
+	Log "Stripped Extract File: ${BASE_FILE_TS}.stripped, Transactions: ${WCS}, EOF: ${FSS}, Digest: ${MD5}"
+	if [[ ${WCS} -eq 0 ]]; then
+		Log "No need to load empty Extract file ${BASE_FILE_TS}"
+	else
+		if [[ ${BASE_FILE_TS} == *RECON* ]]; then
+			Log "Using stripped file as daily file"
+			mv -f ${BASE_FILE_TS}.stripped ${BASE_FILE}.${BUS_DATE}
+			Scp ${BASE_FILE}.${BUS_DATE} ${WNINBOUND}
+		else
+			if [[ ${BASE_FILE_TS} != *.${C_LOCAL}.* ]]; then
+				Log "No need to load non Local Extract file ${BASE_FILE_TS}"
+			else
+				CreateLoadFile
+			fi
+			Log "Adding stripped file to daily file"
+			#if [[ ! -f ${BASE_FILE}.${BUS_DATE} ]]; then
+			#	head -1 ${BASE_FILE_TS} > ${BASE_FILE}.${BUS_DATE}
+			#fi
+			cat ${BASE_FILE_TS}.stripped >> ${BASE_FILE}.${BUS_DATE}
+			Scp ${BASE_FILE}.${BUS_DATE} ${WNINBOUND}
+			let WC=$(wc -l ${BASE_FILE}.${BUS_DATE} | awk '{print $1}')
+			let FS=$(ls -e ${BASE_FILE}.${BUS_DATE} | awk '{print $5}')
+			MD5=$(digest -a md5 ${BASE_FILE}.${BUS_DATE})
+			Log "Combined Extract File: ${BASE_FILE}.${BUS_DATE}, Transactions: ${WC}, EOF: ${FS}, Digest: ${MD5}"
+		fi
+	fi
+	print "$(date +'%Y-%m-%d-%H-%M-%S'),${BASE_FILE_TS},${WCU},${WCS}" >> ${BASE_FILE}.${BUS_DATE}.manifest
+	Scp ${BASE_FILE}.${BUS_DATE}.manifest ${WNINBOUND}
+	if [[ ${BASE_FILE_TS} == *EOD* || ${BASE_FILE_TS} == *RECON* ]]; then
+		HandleComplete
+	fi
+	Log "Removing Stripped Extract File"
+	#rm -f ${BASE_FILE_TS}.stripped
+	mv -f ${BASE_FILE_TS}.stripped ${TDATA}/Cheese/.
+}
+
+function HandleExtract {
+	Log "Handle Extract....."
+	FILE_TS=${BASE_FILE_TS##*.}
+	BASE_FILE=${BASE_FILE_TS%.*}
+	if [[ ${BASE_FILE_TS} == *EOD* ]]; then
+		BASE_FILE=$(echo ${BASE_FILE} | sed -e 's/.EOD//g')
+	fi
+	EXTR_DATE=$(Substr ${FILE_TS} 1 10)
+	EXTR_TIME=$(Substr ${FILE_TS} 12 8)
+	BUS_DATE=${EXTR_DATE}
+	if [[ ${EXTR_TIME} > ${LAST_EXTR_TIME} ]]; then
+		#Log "Adding 1 to BUS_DATE"
+		BUS_DATE=$(AddDaysStr ${BUS_DATE} 1)
+	fi
+	Log "EXTR_DATE: ${EXTR_DATE}, EXTR_TIME: ${EXTR_TIME}, BUS_DATE: ${BUS_DATE}"
+	if [[ ! -f ${BASE_FILE}.${BUS_DATE}.manifest ]]; then
+		print "Timestamp,FileName,Raw,Stripped" >> ${BASE_FILE}.${BUS_DATE}.manifest
+	fi
+	grep ${BASE_FILE_TS} ${BASE_FILE}.${BUS_DATE}.manifest > /dev/null
+	let STATUS=$?
+	if [[ ${STATUS} -eq 0 ]]; then
+		Log "File ${BASE_FILE_TS} has already been processed"
+	else
+		HandleUnprocessed
+	fi
+}
+
+function HandleZip {
+	Log "Handle Zip....."
+	unzip -j $BASE_FILE_TS.zip
+	let STATUS=$?
+	if [[ ${STATUS} -eq 0 ]]; then
+		Log "Creating .ack file"
+		touch ${BASE_FILE_TS}.ack
+		Log "Sending .ack file to ${ACK_HOST}:${ACK_DIR}"
+		scp -p $BASE_FILE_TS.ack trans-sb@${ACK_HOST}:${ACK_DIR}
+		#let STATUS=$?
+		#if [[ ${STATUS} -eq 0 ]]; then
+			#Log ".ack file sent sucessfully. Deleting .zip and .ack files"
+			#rm -f ${BASE_FILE_TS}.zip
+			#rm -f ${BASE_FILE_TS}.ack
+			mv -f ${BASE_FILE_TS}.zip ${TDATA}/Cheese/.
+			mv -f ${BASE_FILE_TS}.ack ${TDATA}/Cheese/.
+			HandleExtract
+		#else
+			#Log ".ack send failed with status of $STATUS. Removing File"
+			#rm -f ${BASE_FILE_TS}
+		#fi
+		Log "Removing Raw Extract File"
+		#rm -f ${BASE_FILE_TS}
+		mv -f ${BASE_FILE_TS} ${TDATA}/Cheese/.
+	else
+		Log "Unzip failed. Deleting zip.  Waiting for a new one"
+		rm -f ${BASE_FILE_TS}.zip
+	fi
+}
+
+C_PWD=${PWD}
+
+#print ""
+#print "       #####                                           #####       ######  #     #"
+#print "     #     #  #    #  ######  ######   ####   ###### #     #       #     # ##   ##"
+#print "    #        #    #  #       #       #       #            #        #     # # # # #"
+#print "   #        ######  #####   #####    ####   #####   #####   #####  ######  #  #  #"
+#print "  #        #    #  #       #            #  #      #                #       #     #"
+#print " #     #  #    #  #       #       #    #  #      #                 #       #     #"
+#print " #####   #    #  ######  ######   ####   ###### #######            #       #     #"
+#print ""
+
+#if [[ "$1" == "-?" || "$1" == "-help" ]]; then
+#	Usage "Cheese2 Usage"
+#fi
 
 C_ENV="SBP1"
 C_MODE="PROD"
+D_EPS_HOST="tc2wnsb-p03"
+H_EPS_HOST="ltcwnsb-p03"
+C_HOST=$(hostname)
+if [[ ${C_HOST} == ltc* ]]; then
+	C_LOCAL="H"
+else
+	C_LOCAL="D"
+fi
 
 while [[ "$1" != "" ]];
 do
-	if [[ $1 == "-dates" ]]; then
+	if [[ $1 == "-env" ]]; then
 		shift
 		if [[ "$1" == "" ]]; then
-			Usage "All three dates must be specified"
-		fi
-		DATE_2=$1
-		shift
-		if [[ "$1" == "" ]]; then
-			Usage "All three dates must be specified"
-		fi
-		DATE_1=$1
-		shift
-		if [[ "$1" == "" ]]; then
-			Usage "All three dates must be specified"
-		fi
-		DATE_0=$1
-		shift
-	elif [[ $1 == "-env" ]]; then
-		shift
-		if [[ "$1" == "" ]]; then
-			Usage "No Environment name specified"
+			Log "No -env Environment name specified"
+			exit 1
 		fi
 		C_ENV=$1
 		shift
 	else
-		Usage "Unexpected parameter $1"
+		Log "Unexpected parameter $1"
+		exit 2
 	fi
 done
 
-if [[ "$DATE_2" == "" ]]; then
-	DATE_2=$(TZ=Europe/London+24 date +%Y-%m-%d)
-	DATE_1=$(TZ=Europe/London    date +%Y-%m-%d)
-	DATE_0=$(TZ=Europe/London-24 date +%Y-%m-%d)
-fi
-
-Log "Using TLF file (-2) for ${DATE_2}"
-Log "Using TLF file (-1) for ${DATE_1}"
-Log "Using TLF file (-0) for ${DATE_0}"
-Log "Using TLFA file (-2 to 0)"
-
+Log "PM Cheese3 Starting to Grate"
+Log "Cheese3_PM v0.1 1st November 2016"
+Log "(c) AEVI 2016"
 Log "Processing for Environment: ${C_ENV}"
+
 if [[ $C_ENV != "SBP1" ]]; then
 	C_MODE="TEST"
+	D_EPS_HOST="tc2wnsb-t02"
+	H_EPS_HOST="ltcwnsb-t02"
 fi
 
 Log "Running in Mode: ${C_MODE}"
@@ -199,210 +431,75 @@ Log "Running in Mode: ${C_MODE}"
 #
 if [[ $C_ENV == "SBD1" ]]; then
 	C_USER="sbadmind"
-	Check_Disc 90 /app
+	LATE_CYCLE_TIME="15-00-00"
+	LAST_EXTR_TIME="15-59-59"
+	D_ACK_DIR="/app/db/b24oltp/SDD1"
+	H_ACK_DIR="/app/db/b24oltp/SDH1"
 elif [[ $C_ENV == "SBM1" ]]; then
 	C_USER="sbadminm"
-	Check_Disc 90 /app
+	LATE_CYCLE_TIME="20-00-00"
+	LAST_EXTR_TIME="20-59-59"
+	D_ACK_DIR="/app/db/b24oltp/SMD1"
+	H_ACK_DIR="/app/db/b24oltp/SMH1"
 elif [[ $C_ENV == "SBP1" ]]; then
 	C_USER="sbadminp"
-	Check_Disc 57 /app3/export
-	Check_Disc 80 /u27
+	LATE_CYCLE_TIME="20-00-00"
+	LAST_EXTR_TIME="20-59-59"
+	D_ACK_DIR="/app/db/b24oltp/SPD1"
+	H_ACK_DIR="/app/db/b24oltp/SPH1"
 elif [[ $C_ENV == "SBT1" ]]; then
 	C_USER="sbadmint"
-	Check_Disc 90 /app
+	LATE_CYCLE_TIME="15-00-00"
+	LAST_EXTR_TIME="15-59-59"
+	D_ACK_DIR="/app/db/b24oltp/STD1"
+	H_ACK_DIR="/app/db/b24oltp/STH1"
 else
-	Usage "Invalid -env Environment specified"
+	Log "Invalid -env Environment specified"
+	exit 3
 fi
 
 . /export/home/${C_USER}/.profile
+cd ${WNINBOUND}
 
-#
-# Get Base File Names
-#
-X_DIR=${WNINBOUND}
-TLF="SB.EXTRACT.${C_MODE}.TLF"
-Log "Looking for TLF Files on ${X_DIR} with Base Name of ${TLF}"
-TLFA="SB.EXTRACT.${C_MODE}.TLFA"
-Log "Looking for TLFA File on ${X_DIR} with Name of ${TLFA}"
-RECON="SB.EXTRACT.${C_MODE}.RECON"
-Log "Looking for RECON File on ${X_DIR} with Name of ${RECON}"
-
-TLF_2=${TLF}.${DATE_2}
-TLF_1=${TLF}.${DATE_1}
-TLF_0=${TLF}.${DATE_0}
-#
-# Initialise for STRIPPER
-#
-C_DATE=${DATE_1}
-if [[ ${C_ENV} == "SBP1" || ${C_ENV} == "SBM1" ]]; then
-	C_TIME="20:00:00"
-else
-	C_TIME="15:00:00"
-fi
-Log "Looking for Transaction from ${DATE_2} ${C_TIME} up to ${DATE_1} ${C_TIME}"
-#
-# TLF -2 file
-#
-WaitFT ${X_DIR}/${TLF_2}
-Strip ${X_DIR}/${TLF_2} ${WNINBOUND}/${TLF_2}.STRIPPED ${C_DATE} ${C_TIME}
-mv -f ${X_DIR}/${TLF_2} ${X_DIR}/${TLF_2}.UNSTRIPPED
-#
-# TLF -1 file
-#
-WaitFT ${X_DIR}/${TLF_1}
-Strip ${X_DIR}/${TLF_1} ${WNINBOUND}/${TLF_1}.STRIPPED ${C_DATE} ${C_TIME}
-mv -f ${X_DIR}/${TLF_1} ${X_DIR}/${TLF_1}.UNSTRIPPED
-
-#
-# TLF 0 file
-#
-WaitFT ${X_DIR}/${TLF_0}
-Strip ${X_DIR}/${TLF_0} ${WNINBOUND}/${TLF_0}.STRIPPED ${C_DATE} ${C_TIME}
-mv -f ${X_DIR}/${TLF_0} ${X_DIR}/${TLF_0}.UNSTRIPPED
-
-#
-# TLFA file
-#
-WaitFT ${X_DIR}/${TLFA}
-Strip ${X_DIR}/${TLFA} ${WNINBOUND}/${TLFA}.STRIPPED ${C_DATE} ${C_TIME}
-mv -f ${X_DIR}/${TLFA} ${X_DIR}/${TLFA}.UNSTRIPPED
-
-#
-# RECON file
-#
-WaitEOF ${X_DIR}/${RECON}
-Strip ${X_DIR}/${RECON} ${WNINBOUND}/${RECON}.STRIPPED ${C_DATE} ${C_TIME}
-mv -f ${X_DIR}/${RECON} ${X_DIR}/${RECON}.UNSTRIPPED
-
-#
-# Get record counts
-#
-let WC_2=$(wc -l ${WNINBOUND}/${TLF_2}.STRIPPED | awk '{print $1}')
-let WC_1=$(wc -l ${WNINBOUND}/${TLF_1}.STRIPPED | awk '{print $1}')
-let WC_0=$(wc -l ${WNINBOUND}/${TLF_0}.STRIPPED | awk '{print $1}')
-
-Log "After Stripping, Extract Contains Following Numbers of Records:"
-Log "${WC_2} ${WNINBOUND}/${TLF_2}.STRIPPED"
-Log "${WC_1} ${WNINBOUND}/${TLF_1}.STRIPPED"
-Log "${WC_0} ${WNINBOUND}/${TLF_0}.STRIPPED"
-let RECS=WC_2+WC_1+WC_0-6
-Log "Total Transaction Records: ${RECS}"
-#
-# Complete file
-#
-TLF_X=${WNINBOUND}/${TLF}
-#
-# temp work file
-#
-TEMP_F="${WNINBOUND}/${TLF}.TEMP"
-#
-# Start with the Header from the -1 file
-#
-head -1 ${WNINBOUND}/${TLF_1}.STRIPPED > ${TLF_X}
-#
-# Now add the records from the -2 file
-#
-let RECS=WC_2-1
-head -${RECS} ${WNINBOUND}/${TLF_2}.STRIPPED > ${TEMP_F}
-let RECS=WC_2-2
-tail -${RECS} ${TEMP_F} >> ${TLF_X}
-#
-# Now add the records from the -1 file
-#
-let RECS=WC_1-1
-head -${RECS} ${WNINBOUND}/${TLF_1}.STRIPPED > ${TEMP_F}
-let RECS=WC_1-2
-tail -${RECS} ${TEMP_F} >> ${TLF_X}
-#
-# Now add the records from the 0 file
-#
-let RECS=WC_0-1
-head -${RECS} ${WNINBOUND}/${TLF_0}.STRIPPED > ${TEMP_F}
-let RECS=WC_0-2
-tail -${RECS} ${TEMP_F} >> ${TLF_X}
-#
-# Now add the Trailer from the -1 file
-#
-tail -1 ${WNINBOUND}/${TLF_1}.STRIPPED >> ${TLF_X}
-rm -f ${TEMP_F}
-rm -f ${WNINBOUND}/${TLF_2}.STRIPPED
-rm -f ${WNINBOUND}/${TLF_1}.STRIPPED
-rm -f ${WNINBOUND}/${TLF_0}.STRIPPED
-ls -etr ${TLF_X}
-digest -a md5 ${TLF_X}
-let WC_X=$(wc -l ${TLF_X} | awk '{print $1}')
-let RECS=WC_X-2
-Log "Total Transaction Records: ${RECS}"
-#
-# Now copy TLF to $WNDATA for GL script to use
-#
-TLF_GL=${WNDATA}/${TLF}
-Log "Copying ${TLF_X} to ${TLF_GL}"
-cp -p ${TLF_X} ${TLF_GL}
-ls -etr ${TLF_GL}
-digest -a md5 ${TLF_GL}
-let WC_GL=$(wc -l ${TLF_GL} | awk '{print $1}')
-let RECS=WC_GL-2
-Log "Total Transaction Records: ${RECS}"
-#
-# Now copy this file to other site
-#
 MY_NAME=$(hostname)
 DR_NAME=$($WNSCRIPT/DRMODE)
-if [[ $DR_NAME == "LOGONLY" ]]; then
-	Log "No need to SCP ${TLF_GL} - running LOGONLY"
-elif [[ $DR_NAME == $MY_NAME ]]; then
-	Log "No need to SCP ${TLF_GL} - running on Standby Box"
-else
-	Log "SCPing ${TLF_GL} to ${DR_NAME} under username ${C_USER}"
-	scp -p ${TLF_GL} ${C_USER}@${DR_NAME}:${WNDATA}
-fi
-#
-# Now for the TLFA
-#
-let WC_A=$(wc -l ${WNINBOUND}/${TLFA}.STRIPPED | awk '{print $1}')
-Log "${WC_A} ${WNINBOUND}/${TLFA}.STRIPPED"
-#mv -f ${WNINBOUND}/${TLFA}.STRIPPED ${WNINBOUND}/${TLFA}
-#
-# Now copy TLFA to $WNDATA for GL script to use
-#
-TLFA_GL=${WNDATA}/${TLFA}
-Log "Copying ${TLFA}.STRIPPED to ${TLFA_GL}"
-cp -p ${WNINBOUND}/${TLFA}.STRIPPED ${TLFA_GL}
-ls -etr ${TLFA_GL}
-digest -a md5 ${TLFA_GL}
-let WC_GL=$(wc -l ${TLFA_GL} | awk '{print $1}')
-let RECS=WC_GL-2
-Log "Total Admin Records: ${RECS}"
-#
-# Now copy this file to other site
-#
-if [[ $DR_NAME == "LOGONLY" ]]; then
-	Log "No need to SCP ${TLFA_GL} - running LOGONLY"
-elif [[ $DR_NAME == $MY_NAME ]]; then
-	Log "No need to SCP ${TLFA_GL} - running on Standby Box"
-else
-	Log "SCPing ${TLFA_GL} to ${DR_NAME} under username ${C_USER}"
-	scp -p ${TLFA_GL} ${C_USER}@${DR_NAME}:${WNDATA}
-fi
 
-#
-# Now for the RECON
-#
-let WC_R=$(wc -l ${WNINBOUND}/${RECON}.STRIPPED | awk '{print $1}')
-Log "${WC_R} ${WNINBOUND}/${RECON}.STRIPPED"
-mv -f ${WNINBOUND}/${RECON}.STRIPPED ${WNINBOUND}/SB.RECON.${C_MODE}
-#
-# Now copy this file to other site
-#
-if [[ $DR_NAME == "LOGONLY" ]]; then
-	Log "No need to SCP ${RECON} - running LOGONLY"
-elif [[ $DR_NAME == $MY_NAME ]]; then
-	Log "No need to SCP ${RECON} - running on Standby Box"
-else
-	Log "SCPing ${RECON} to ${DR_NAME} under username ${C_USER}"
-	scp -p ${WNINBOUND}/SB.RECON.${C_MODE} ${C_USER}@${DR_NAME}:${WNINBOUND}
-fi
+Log "MY_NAME:         ${MY_NAME}"
+Log "DR_NAME:         ${DR_NAME}"
+Log "D_EPS_HOST:      ${D_EPS_HOST}"
+Log "H_EPS_HOST:      ${H_EPS_HOST}"
+Log "D_ACK_DIR:       ${D_ACK_DIR}"
+Log "H_ACK_DIR:       ${H_ACK_DIR}"
+Log "LATE_CYCLE_TIME: ${LATE_CYCLE_TIME}"
+Log "LAST_EXTR_TIME:  ${LAST_EXTR_TIME}"
+
+Log "To infinity and beyond...."
+while [[ 0 -eq 0 ]];
+do
+	#Log "Looking for C.${C_ENV}.*.zip files"
+    for FILE in C.${C_ENV}*zip;
+    do
+        if [[ -f ${FILE} ]]; then
+            Log "File found: $FILE"
+            BASE_FILE_TS=${FILE%.*}
+			if [[ ${BASE_FILE_TS} == *.D.* ]]; then
+				ACK_HOST=${D_EPS_HOST}
+				ACK_DIR=${D_ACK_DIR}
+			elif [[ $BASE_FILE_TS == *.H.* ]]; then
+				ACK_HOST=${H_EPS_HOST}
+				ACK_DIR=${H_ACK_DIR}
+			else
+				Log "File ${FILE} received from unexpected host. Renaming ${FILE} to ${FILE}.Cheesed"
+				mv -f ${FILE} ${FILE}.Cheesed
+				ACK_HOST="NONE"
+			fi
+			if [[ ${ACK_HOST} != "NONE" ]]; then
+				HandleZip
+            fi
+        fi
+    done
+    sleep 60
+done
 
 Log "Cheese Successfully Grated"
 ######################
