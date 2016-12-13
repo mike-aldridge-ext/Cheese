@@ -1,0 +1,410 @@
+#!/bin/ksh
+function Usage {
+	print $1
+	print ""
+	print "'Cheese' is a utiliy to combine and strip three extract files."
+	print "The business dates are appended to find the three actual file names to use:"
+	print "Previous Day's (-2), Day just finished (-1) and New Day's (0)"
+	print "The three files are combined (with one header from -1 file,"
+	print "followed by all the data records, followed by one trailer."
+	print "(Note: the RECON file does not have Header/Trailer records.)"
+	print "The resulting file is then stripped to give a 8pm-8pm period."
+	print "Finally, the Minus Two file is removed, and the Minus One file"
+	print "is renamed to become tomorrow's Minus Two file."
+	print ""
+	print "Normally 'Cheese' is run with no parameters.  Today's date is assumed"
+	print "to be the correct date to use.  Yesterday's, today's and tomorrow's"
+	print "TLF files are required.  To run for a specific date, all three dates"
+	print "must be entered in sequence.  e.g., to run for Sep 21st, enter"
+	print "Cheese 2016-09-20 2016-09-21 2016-09-22"
+    print ""
+	print "The Production envionment SBP1 is assumed."
+	print "This can be overridden using -env <ENV>"
+	print "where <ENV> can be PM, SBD1, SBM1 or SBT1"
+	exit 1
+}
+
+function Strip {
+	S_IN=$1
+	shift
+	S_OUT=$1
+	shift
+	S_DATE=$1
+	shift
+	S_TIME=$1
+	shift
+	ls -etr ${S_IN}
+	digest -a md5 ${S_IN}
+	$WNSCRIPT/STRIPPER.php -in ${S_IN} -out ${S_OUT} -date ${S_DATE} -time ${S_TIME} -log $LOG/STRIPPER.${S_DATE}.log -stats $DATA/STRIPPER.stats
+}
+
+function Log {
+	TEXT=$1
+	TS=$(date +'%Y-%m-%d %H:%M:%S')
+	print - $TS $TEXT
+}
+
+function WaitFT {
+	TLF_FILE=$1
+	shift
+	Log "Waiting for ${TLF_FILE} to be copied from BASE24"
+	while [[ ! -f ${TLF_FILE} ]];
+	do
+		sleep 10
+	done
+	Log "File being copied"
+	let COPYING=1
+	while [[ ${COPYING} -eq 1 ]];
+	do
+		sleep 10
+		tail -1 ${TLF_FILE} | egrep -s "^000086FTTLF"
+		COPYING=$?
+		FSIZE=$(ls -e ${TLF_FILE} | awk '{print $5}')
+		Log "Current EOF: ${FSIZE}"
+	done
+	Log "Copy of ${TLF_FILE} Complete"
+}
+
+function WaitEOF {
+	RECON_FILE=$1
+	shift
+	Log "Waiting for ${RECON_FILE} to be copied from BASE24"
+	while [[ ! -f ${RECON_FILE} ]];
+	do
+		sleep 10
+	done
+	Log "File being copied"
+	let COPYING=1
+	PFSIZE=$(ls -e ${RECON_FILE} | awk '{print $5}')
+	while [[ ${COPYING} -eq 1 ]];
+	do
+		sleep 30
+		FSIZE=$(ls -e ${RECON_FILE} | awk '{print $5}')
+		if [[ $FSIZE == $PFSIZE ]]; then
+			let COPYING=0
+		else
+			PFSIZE=$FSIZE
+		fi
+		Log "Current EOF: ${FSIZE}"
+	done
+	Log "Copy of ${RECON_FILE} Complete"
+}
+
+function Check_Disc {
+    # 2 arguments; Capacity upper, Volume to check
+    # Check and show disc usage
+    let CRITICAL=1
+    # CAPACITYN=${CAPACITY%\%}
+	CAPACITYN=$1
+	shift
+	VOL=$1
+    shift
+	while [[ CRITICAL -eq 1 ]]; do
+		let CNT=0
+		df -h $VOL |
+		while read LINE
+		do
+			LINES[$CNT]=$LINE
+			let CNT=CNT+1
+		done
+		LINE=${LINES[1]}
+		DFCAP=$(echo $LINE | awk '{print $5}')
+		DFCAP=${DFCAP%\%}
+		if [[ $DFCAP -gt $CAPACITYN ]]; then
+			DFMNT=$(echo $LINE | awk '{print $6}')
+			Log "### Mount $DFMNT is at $DFCAP% of capacity ###"
+			Log "### Mount $DFMNT MUST BE UNDER $CAPACITY% OF CAPACITY for Cheese_PM to run ###"
+			Log "### Cheese_PM will suspend until enough space is available ###"
+			Log "### Sleeping for 60 seconds... ###"
+			sleep 60
+		else
+			let CRITICAL=0
+		fi
+    done
+    Log "Disk space is healthy (threshold is $CAPACITYN% on $VOL)"
+}
+
+Log "PM Cheese Starting to Grate"
+Log "Cheese_PM v0.4 26th October 2016"
+Log "(c) AEVI 2016"
+
+print ""
+print "       #####                                            ######  #     #"
+print "     #     #  #    #  ######  ######   ####   ######    #     # ##   ##"
+print "    #        #    #  #       #       #       #          #     # # # # #"
+print "   #        ######  #####   #####    ####   #####  ###  ######  #  #  #"
+print "  #        #    #  #       #            #  #            #       #     #"
+print " #     #  #    #  #       #       #    #  #             #       #     #"
+print " #####   #    #  ######  ######   ####   ######         #       #     #"
+print ""
+
+if [[ "$1" == "-?" || "$1" == "-help" ]]; then
+	Usage "Cheese Usage"
+fi
+
+C_ENV="SBP1"
+C_MODE="PROD"
+
+while [[ "$1" != "" ]];
+do
+	if [[ $1 == "-dates" ]]; then
+		shift
+		if [[ "$1" == "" ]]; then
+			Usage "All three dates must be specified"
+		fi
+		DATE_2=$1
+		shift
+		if [[ "$1" == "" ]]; then
+			Usage "All three dates must be specified"
+		fi
+		DATE_1=$1
+		shift
+		if [[ "$1" == "" ]]; then
+			Usage "All three dates must be specified"
+		fi
+		DATE_0=$1
+		shift
+	elif [[ $1 == "-env" ]]; then
+		shift
+		if [[ "$1" == "" ]]; then
+			Usage "No Environment name specified"
+		fi
+		C_ENV=$1
+		shift
+	else
+		Usage "Unexpected parameter $1"
+	fi
+done
+
+if [[ "$DATE_2" == "" ]]; then
+	DATE_2=$(TZ=Europe/London+24 date +%Y-%m-%d)
+	DATE_1=$(TZ=Europe/London    date +%Y-%m-%d)
+	DATE_0=$(TZ=Europe/London-24 date +%Y-%m-%d)
+fi
+
+Log "Using TLF file (-2) for ${DATE_2}"
+Log "Using TLF file (-1) for ${DATE_1}"
+Log "Using TLF file (-0) for ${DATE_0}"
+Log "Using TLFA file (-2 to 0)"
+
+Log "Processing for Environment: ${C_ENV}"
+if [[ $C_ENV != "SBP1" ]]; then
+	C_MODE="TEST"
+fi
+
+Log "Running in Mode: ${C_MODE}"
+
+#
+# Set the SCP User Name and check disk capacity
+#
+if [[ $C_ENV == "SBD1" ]]; then
+	C_USER="sbadmind"
+	Check_Disc 90 /app
+elif [[ $C_ENV == "SBM1" ]]; then
+	C_USER="sbadminm"
+	Check_Disc 90 /app
+elif [[ $C_ENV == "SBP1" ]]; then
+	C_USER="sbadminp"
+	Check_Disc 57 /app3/export
+	Check_Disc 80 /u27
+elif [[ $C_ENV == "SBT1" ]]; then
+	C_USER="sbadmint"
+	Check_Disc 90 /app
+else
+	Usage "Invalid -env Environment specified"
+fi
+
+. /export/home/${C_USER}/.profile
+
+#
+# Get Base File Names
+#
+X_DIR=${WNINBOUND}
+TLF="SB.EXTRACT.${C_MODE}.TLF"
+Log "Looking for TLF Files on ${X_DIR} with Base Name of ${TLF}"
+TLFA="SB.EXTRACT.${C_MODE}.TLFA"
+Log "Looking for TLFA File on ${X_DIR} with Name of ${TLFA}"
+RECON="SB.EXTRACT.${C_MODE}.RECON"
+Log "Looking for RECON File on ${X_DIR} with Name of ${RECON}"
+
+TLF_2=${TLF}.${DATE_2}
+TLF_1=${TLF}.${DATE_1}
+TLF_0=${TLF}.${DATE_0}
+#
+# Initialise for STRIPPER
+#
+C_DATE=${DATE_1}
+if [[ ${C_ENV} == "SBP1" || ${C_ENV} == "SBM1" ]]; then
+	C_TIME="20:00:00"
+else
+	C_TIME="15:00:00"
+fi
+Log "Looking for Transaction from ${DATE_2} ${C_TIME} up to ${DATE_1} ${C_TIME}"
+#
+# TLF -2 file
+#
+WaitFT ${X_DIR}/${TLF_2}
+Strip ${X_DIR}/${TLF_2} ${WNINBOUND}/${TLF_2}.STRIPPED ${C_DATE} ${C_TIME}
+mv -f ${X_DIR}/${TLF_2} ${X_DIR}/${TLF_2}.UNSTRIPPED
+#
+# TLF -1 file
+#
+WaitFT ${X_DIR}/${TLF_1}
+Strip ${X_DIR}/${TLF_1} ${WNINBOUND}/${TLF_1}.STRIPPED ${C_DATE} ${C_TIME}
+mv -f ${X_DIR}/${TLF_1} ${X_DIR}/${TLF_1}.UNSTRIPPED
+
+#
+# TLF 0 file
+#
+WaitFT ${X_DIR}/${TLF_0}
+Strip ${X_DIR}/${TLF_0} ${WNINBOUND}/${TLF_0}.STRIPPED ${C_DATE} ${C_TIME}
+mv -f ${X_DIR}/${TLF_0} ${X_DIR}/${TLF_0}.UNSTRIPPED
+
+#
+# TLFA file
+#
+WaitFT ${X_DIR}/${TLFA}
+Strip ${X_DIR}/${TLFA} ${WNINBOUND}/${TLFA}.STRIPPED ${C_DATE} ${C_TIME}
+mv -f ${X_DIR}/${TLFA} ${X_DIR}/${TLFA}.UNSTRIPPED
+
+#
+# RECON file
+#
+WaitEOF ${X_DIR}/${RECON}
+Strip ${X_DIR}/${RECON} ${WNINBOUND}/${RECON}.STRIPPED ${C_DATE} ${C_TIME}
+mv -f ${X_DIR}/${RECON} ${X_DIR}/${RECON}.UNSTRIPPED
+
+#
+# Get record counts
+#
+let WC_2=$(wc -l ${WNINBOUND}/${TLF_2}.STRIPPED | awk '{print $1}')
+let WC_1=$(wc -l ${WNINBOUND}/${TLF_1}.STRIPPED | awk '{print $1}')
+let WC_0=$(wc -l ${WNINBOUND}/${TLF_0}.STRIPPED | awk '{print $1}')
+
+Log "After Stripping, Extract Contains Following Numbers of Records:"
+Log "${WC_2} ${WNINBOUND}/${TLF_2}.STRIPPED"
+Log "${WC_1} ${WNINBOUND}/${TLF_1}.STRIPPED"
+Log "${WC_0} ${WNINBOUND}/${TLF_0}.STRIPPED"
+let RECS=WC_2+WC_1+WC_0-6
+Log "Total Transaction Records: ${RECS}"
+#
+# Complete file
+#
+TLF_X=${WNINBOUND}/${TLF}
+#
+# temp work file
+#
+TEMP_F="${WNINBOUND}/${TLF}.TEMP"
+#
+# Start with the Header from the -1 file
+#
+head -1 ${WNINBOUND}/${TLF_1}.STRIPPED > ${TLF_X}
+#
+# Now add the records from the -2 file
+#
+let RECS=WC_2-1
+head -${RECS} ${WNINBOUND}/${TLF_2}.STRIPPED > ${TEMP_F}
+let RECS=WC_2-2
+tail -${RECS} ${TEMP_F} >> ${TLF_X}
+#
+# Now add the records from the -1 file
+#
+let RECS=WC_1-1
+head -${RECS} ${WNINBOUND}/${TLF_1}.STRIPPED > ${TEMP_F}
+let RECS=WC_1-2
+tail -${RECS} ${TEMP_F} >> ${TLF_X}
+#
+# Now add the records from the 0 file
+#
+let RECS=WC_0-1
+head -${RECS} ${WNINBOUND}/${TLF_0}.STRIPPED > ${TEMP_F}
+let RECS=WC_0-2
+tail -${RECS} ${TEMP_F} >> ${TLF_X}
+#
+# Now add the Trailer from the -1 file
+#
+tail -1 ${WNINBOUND}/${TLF_1}.STRIPPED >> ${TLF_X}
+rm -f ${TEMP_F}
+rm -f ${WNINBOUND}/${TLF_2}.STRIPPED
+rm -f ${WNINBOUND}/${TLF_1}.STRIPPED
+rm -f ${WNINBOUND}/${TLF_0}.STRIPPED
+ls -etr ${TLF_X}
+digest -a md5 ${TLF_X}
+let WC_X=$(wc -l ${TLF_X} | awk '{print $1}')
+let RECS=WC_X-2
+Log "Total Transaction Records: ${RECS}"
+#
+# Now copy TLF to $WNDATA for GL script to use
+#
+TLF_GL=${WNDATA}/${TLF}
+Log "Copying ${TLF_X} to ${TLF_GL}"
+cp -p ${TLF_X} ${TLF_GL}
+ls -etr ${TLF_GL}
+digest -a md5 ${TLF_GL}
+let WC_GL=$(wc -l ${TLF_GL} | awk '{print $1}')
+let RECS=WC_GL-2
+Log "Total Transaction Records: ${RECS}"
+#
+# Now copy this file to other site
+#
+MY_NAME=$(hostname)
+DR_NAME=$($WNSCRIPT/DRMODE)
+if [[ $DR_NAME == "LOGONLY" ]]; then
+	Log "No need to SCP ${TLF_GL} - running LOGONLY"
+elif [[ $DR_NAME == $MY_NAME ]]; then
+	Log "No need to SCP ${TLF_GL} - running on Standby Box"
+else
+	Log "SCPing ${TLF_GL} to ${DR_NAME} under username ${C_USER}"
+	scp -p ${TLF_GL} ${C_USER}@${DR_NAME}:${WNDATA}
+fi
+#
+# Now for the TLFA
+#
+let WC_A=$(wc -l ${WNINBOUND}/${TLFA}.STRIPPED | awk '{print $1}')
+Log "${WC_A} ${WNINBOUND}/${TLFA}.STRIPPED"
+#mv -f ${WNINBOUND}/${TLFA}.STRIPPED ${WNINBOUND}/${TLFA}
+#
+# Now copy TLFA to $WNDATA for GL script to use
+#
+TLFA_GL=${WNDATA}/${TLFA}
+Log "Copying ${TLFA}.STRIPPED to ${TLFA_GL}"
+cp -p ${WNINBOUND}/${TLFA}.STRIPPED ${TLFA_GL}
+ls -etr ${TLFA_GL}
+digest -a md5 ${TLFA_GL}
+let WC_GL=$(wc -l ${TLFA_GL} | awk '{print $1}')
+let RECS=WC_GL-2
+Log "Total Admin Records: ${RECS}"
+#
+# Now copy this file to other site
+#
+if [[ $DR_NAME == "LOGONLY" ]]; then
+	Log "No need to SCP ${TLFA_GL} - running LOGONLY"
+elif [[ $DR_NAME == $MY_NAME ]]; then
+	Log "No need to SCP ${TLFA_GL} - running on Standby Box"
+else
+	Log "SCPing ${TLFA_GL} to ${DR_NAME} under username ${C_USER}"
+	scp -p ${TLFA_GL} ${C_USER}@${DR_NAME}:${WNDATA}
+fi
+
+#
+# Now for the RECON
+#
+let WC_R=$(wc -l ${WNINBOUND}/${RECON}.STRIPPED | awk '{print $1}')
+Log "${WC_R} ${WNINBOUND}/${RECON}.STRIPPED"
+mv -f ${WNINBOUND}/${RECON}.STRIPPED ${WNINBOUND}/SB.RECON.${C_MODE}
+#
+# Now copy this file to other site
+#
+if [[ $DR_NAME == "LOGONLY" ]]; then
+	Log "No need to SCP ${RECON} - running LOGONLY"
+elif [[ $DR_NAME == $MY_NAME ]]; then
+	Log "No need to SCP ${RECON} - running on Standby Box"
+else
+	Log "SCPing ${RECON} to ${DR_NAME} under username ${C_USER}"
+	scp -p ${WNINBOUND}/SB.RECON.${C_MODE} ${C_USER}@${DR_NAME}:${WNINBOUND}
+fi
+
+Log "Cheese Successfully Grated"
+######################
+# End Of Script
+######################
