@@ -243,96 +243,173 @@ Log "Looking for Transaction from ${DATE_2} ${C_TIME} up to ${DATE_1} ${C_TIME}"
 #
 # TLF -2 file
 #
-WaitFT ${X_DIR}/${TLF_2}
-Strip ${X_DIR}/${TLF_2} ${WNINBOUND}/${TLF_2}.STRIPPED ${C_DATE} ${C_TIME}
-mv -f ${X_DIR}/${TLF_2} ${X_DIR}/${TLF_2}.UNSTRIPPED
+WaitFT ${X_DIR}/${TLF_2}.H
+Strip ${X_DIR}/${TLF_2}.H ${WNINBOUND}/${TLF_2}.H.STRIPPED ${C_DATE} ${C_TIME}
+mv -f ${X_DIR}/${TLF_2}.H ${X_DIR}/${TLF_2}.H.UNSTRIPPED
+
+WaitFT ${X_DIR}/${TLF_2}.D
+Strip ${X_DIR}/${TLF_2}.D ${WNINBOUND}/${TLF_2}.D.STRIPPED ${C_DATE} ${C_TIME}
+mv -f ${X_DIR}/${TLF_2}.D ${X_DIR}/${TLF_2}.D.UNSTRIPPED
 #
 # TLF -1 file
 #
-WaitFT ${X_DIR}/${TLF_1}
-Strip ${X_DIR}/${TLF_1} ${WNINBOUND}/${TLF_1}.STRIPPED ${C_DATE} ${C_TIME}
-mv -f ${X_DIR}/${TLF_1} ${X_DIR}/${TLF_1}.UNSTRIPPED
+WaitFT ${X_DIR}/${TLF_1}.H
+Strip ${X_DIR}/${TLF_1}.H ${WNINBOUND}/${TLF_1}.H.STRIPPED ${C_DATE} ${C_TIME}
+mv -f ${X_DIR}/${TLF_1}.H ${X_DIR}/${TLF_1}.H.UNSTRIPPED
+
+WaitFT ${X_DIR}/${TLF_1}.D
+Strip ${X_DIR}/${TLF_1}.D ${WNINBOUND}/${TLF_1}.D.STRIPPED ${C_DATE} ${C_TIME}
+mv -f ${X_DIR}/${TLF_1}.D ${X_DIR}/${TLF_1}.D.UNSTRIPPED
 
 #
 # TLF 0 file
 #
-WaitFT ${X_DIR}/${TLF_0}
-Strip ${X_DIR}/${TLF_0} ${WNINBOUND}/${TLF_0}.STRIPPED ${C_DATE} ${C_TIME}
-mv -f ${X_DIR}/${TLF_0} ${X_DIR}/${TLF_0}.UNSTRIPPED
+WaitFT ${X_DIR}/${TLF_0}.H
+Strip ${X_DIR}/${TLF_0}.H ${WNINBOUND}/${TLF_0}.H.STRIPPED ${C_DATE} ${C_TIME}
+mv -f ${X_DIR}/${TLF_0}.H ${X_DIR}/${TLF_0}.H.UNSTRIPPED
+
+WaitFT ${X_DIR}/${TLF_0}.D
+Strip ${X_DIR}/${TLF_0}.D ${WNINBOUND}/${TLF_0}.D.STRIPPED ${C_DATE} ${C_TIME}
+mv -f ${X_DIR}/${TLF_0}.D ${X_DIR}/${TLF_0}.D.UNSTRIPPED
 
 #
 # TLFA file
 #
-WaitFT ${X_DIR}/${TLFA}
-Strip ${X_DIR}/${TLFA} ${WNINBOUND}/${TLFA}.STRIPPED ${C_DATE} ${C_TIME}
-mv -f ${X_DIR}/${TLFA} ${X_DIR}/${TLFA}.UNSTRIPPED
+WaitFT ${X_DIR}/${TLFA}.H
+Strip ${X_DIR}/${TLFA}.H ${WNINBOUND}/${TLFA}.H.STRIPPED ${C_DATE} ${C_TIME}
+mv -f ${X_DIR}/${TLFA}.H ${X_DIR}/${TLFA}.H.UNSTRIPPED
+
+WaitFT ${X_DIR}/${TLFA}.D
+Strip ${X_DIR}/${TLFA}.D ${WNINBOUND}/${TLFA}.D.STRIPPED ${C_DATE} ${C_TIME}
+mv -f ${X_DIR}/${TLFA}.D ${X_DIR}/${TLFA}.D.UNSTRIPPED
 
 #
 # RECON file
 #
-WaitEOF ${X_DIR}/${RECON}
-Strip ${X_DIR}/${RECON} ${WNINBOUND}/${RECON}.STRIPPED ${C_DATE} ${C_TIME}
-mv -f ${X_DIR}/${RECON} ${X_DIR}/${RECON}.UNSTRIPPED
+WaitEOF ${X_DIR}/${RECON}.H
+Strip ${X_DIR}/${RECON}.H ${WNINBOUND}/${RECON}.H.STRIPPED ${C_DATE} ${C_TIME}
+mv -f ${X_DIR}/${RECON}.H ${X_DIR}/${RECON}.H.UNSTRIPPED
+
+WaitEOF ${X_DIR}/${RECON}.D
+Strip ${X_DIR}/${RECON}.D ${WNINBOUND}/${RECON}.D.STRIPPED ${C_DATE} ${C_TIME}
+mv -f ${X_DIR}/${RECON}.D ${X_DIR}/${RECON}.D.UNSTRIPPED
 
 #
 # Get record counts
 #
-let WC_2=$(wc -l ${WNINBOUND}/${TLF_2}.STRIPPED | awk '{print $1}')
-let WC_1=$(wc -l ${WNINBOUND}/${TLF_1}.STRIPPED | awk '{print $1}')
-let WC_0=$(wc -l ${WNINBOUND}/${TLF_0}.STRIPPED | awk '{print $1}')
+let WC_2_H=$(wc -l ${WNINBOUND}/${TLF_2}.H.STRIPPED | awk '{print $1}')
+let WC_1_H=$(wc -l ${WNINBOUND}/${TLF_1}.H.STRIPPED | awk '{print $1}')
+let WC_0_H=$(wc -l ${WNINBOUND}/${TLF_0}.H.STRIPPED | awk '{print $1}')
+
+let WC_2_D=$(wc -l ${WNINBOUND}/${TLF_2}.D.STRIPPED | awk '{print $1}')
+let WC_1_D=$(wc -l ${WNINBOUND}/${TLF_1}.D.STRIPPED | awk '{print $1}')
+let WC_0_D=$(wc -l ${WNINBOUND}/${TLF_0}.D.STRIPPED | awk '{print $1}')
 
 Log "After Stripping, Extract Contains Following Numbers of Records:"
-Log "${WC_2} ${WNINBOUND}/${TLF_2}.STRIPPED"
-Log "${WC_1} ${WNINBOUND}/${TLF_1}.STRIPPED"
-Log "${WC_0} ${WNINBOUND}/${TLF_0}.STRIPPED"
-let RECS=WC_2+WC_1+WC_0-6
-Log "Total Transaction Records: ${RECS}"
+Log "${WC_2_H} ${WNINBOUND}/${TLF_2}.H.STRIPPED"
+Log "${WC_1_H} ${WNINBOUND}/${TLF_1}.H.STRIPPED"
+Log "${WC_0_H} ${WNINBOUND}/${TLF_0}.H.STRIPPED"
+
+Log "${WC_2_D} ${WNINBOUND}/${TLF_2}.D.STRIPPED"
+Log "${WC_1_D} ${WNINBOUND}/${TLF_1}.D.STRIPPED"
+Log "${WC_0_D} ${WNINBOUND}/${TLF_0}.D.STRIPPED"
+
+let RECS_H=WC_2_H+WC_1_H+WC_0_H-6
+let RECS_D=WC_2_D+WC_1_D+WC_0_D-6
+Log "Total Transaction Records Hounslow:  ${RECS_H}"
+Log "Total Transaction Records Docklands: ${RECS_D}"
+
 #
 # Complete file
 #
 TLF_X=${WNINBOUND}/${TLF}
+
 #
 # temp work file
 #
 TEMP_F="${WNINBOUND}/${TLF}.TEMP"
+
 #
 # Start with the Header from the -1 file
 #
-head -1 ${WNINBOUND}/${TLF_1}.STRIPPED > ${TLF_X}
+head -1 ${WNINBOUND}/${TLF_1}.H.STRIPPED > ${TLF_X}.H
+head -1 ${WNINBOUND}/${TLF_1}.D.STRIPPED > ${TLF_X}.D
+
 #
 # Now add the records from the -2 file
 #
-let RECS=WC_2-1
-head -${RECS} ${WNINBOUND}/${TLF_2}.STRIPPED > ${TEMP_F}
-let RECS=WC_2-2
-tail -${RECS} ${TEMP_F} >> ${TLF_X}
+let RECS=WC_2_H-1
+head -${RECS} ${WNINBOUND}/${TLF_2}.H.STRIPPED > ${TEMP_F}
+let RECS=WC_2_H-2
+tail -${RECS} ${TEMP_F} >> ${TLF_X}.H
+
+let RECS=WC_2_D-1
+head -${RECS} ${WNINBOUND}/${TLF_2}.D.STRIPPED > ${TEMP_F}
+let RECS=WC_2_D-2
+tail -${RECS} ${TEMP_F} >> ${TLF_X}.D
+
 #
 # Now add the records from the -1 file
 #
-let RECS=WC_1-1
-head -${RECS} ${WNINBOUND}/${TLF_1}.STRIPPED > ${TEMP_F}
-let RECS=WC_1-2
-tail -${RECS} ${TEMP_F} >> ${TLF_X}
+let RECS=WC_1_H-1
+head -${RECS} ${WNINBOUND}/${TLF_1}.H.STRIPPED > ${TEMP_F}
+let RECS=WC_1_H-2
+tail -${RECS} ${TEMP_F} >> ${TLF_X}.H
+
+let RECS=WC_1_D-1
+head -${RECS} ${WNINBOUND}/${TLF_1}.D.STRIPPED > ${TEMP_F}
+let RECS=WC_1_D-2
+tail -${RECS} ${TEMP_F} >> ${TLF_X}.D
+
 #
 # Now add the records from the 0 file
 #
-let RECS=WC_0-1
-head -${RECS} ${WNINBOUND}/${TLF_0}.STRIPPED > ${TEMP_F}
-let RECS=WC_0-2
-tail -${RECS} ${TEMP_F} >> ${TLF_X}
+let RECS=WC_0_H-1
+head -${RECS} ${WNINBOUND}/${TLF_0}.H.STRIPPED > ${TEMP_F}
+let RECS=WC_0_H-2
+tail -${RECS} ${TEMP_F} >> ${TLF_X}.H
+
+let RECS=WC_0_D-1
+head -${RECS} ${WNINBOUND}/${TLF_0}.D.STRIPPED > ${TEMP_F}
+let RECS=WC_0_D-2
+tail -${RECS} ${TEMP_F} >> ${TLF_X}.D
+
 #
 # Now add the Trailer from the -1 file
 #
-tail -1 ${WNINBOUND}/${TLF_1}.STRIPPED >> ${TLF_X}
+tail -1 ${WNINBOUND}/${TLF_1}.H.STRIPPED >> ${TLF_X}.H
+tail -1 ${WNINBOUND}/${TLF_1}.D.STRIPPED >> ${TLF_X}.D
+
 rm -f ${TEMP_F}
-rm -f ${WNINBOUND}/${TLF_2}.STRIPPED
-rm -f ${WNINBOUND}/${TLF_1}.STRIPPED
-rm -f ${WNINBOUND}/${TLF_0}.STRIPPED
-ls -etr ${TLF_X}
-digest -a md5 ${TLF_X}
-let WC_X=$(wc -l ${TLF_X} | awk '{print $1}')
-let RECS=WC_X-2
-Log "Total Transaction Records: ${RECS}"
+rm -f ${WNINBOUND}/${TLF_2}.H.STRIPPED
+rm -f ${WNINBOUND}/${TLF_1}.H.STRIPPED
+rm -f ${WNINBOUND}/${TLF_0}.H.STRIPPED
+
+let WC_X_H=$(wc -l ${TLF_X}.H | awk '{print $1}')
+let FS_X_H=$(ls -e ${TLF_X}.H | awk '{print $5}')
+let RECS_H=WC_X_H-2
+Log "Total Transactions Hounslow:  ${RECS_H}"
+Log "         File Size Hounslow:  ${FS_X_H}"
+
+let WC_X_D=$(wc -l ${TLF_X}.D | awk '{print $1}')
+let FS_X_D=$(ls -e ${TLF_X}.D | awk '{print $5}')
+let RECS_D=WC_X_D-2
+Log "Total Transactions Docklands: ${RECS_D}"
+Log "         File Size Docklands: ${FS_X_D}"
+
+if [[ $WC_X_H -ne $WC_X_D || $FS_X_H -ne $FS_X_D ]]; then
+	Log "The two TLF extract files are different - sort/merging"
+	SORT_KEYS="1.9,1.27 -k 2.42,2.49 -k 3.66,3.84"
+	sort -k ${SORT_KEYS} -o ${TLF_X} -u ${TLF_X}.H ${TLF_X}.D
+	let STATUS=$?
+	Log "SORT existed with status: ${STATUS}"
+	rm -f ${TLF_X}.H ${TLF_X}.D
+else
+	Log "The two TLF extract files are the same"
+	mv -f ${TLF_X}.H ${TLF_X}
+	rm -f ${TLF_X}.D
+fi
+
 #
 # Now copy TLF to $WNDATA for GL script to use
 #
@@ -357,11 +434,33 @@ else
 	Log "SCPing ${TLF_GL} to ${DR_NAME} under username ${C_USER}"
 	scp -p ${TLF_GL} ${C_USER}@${DR_NAME}:${WNDATA}
 fi
+
 #
 # Now for the TLFA
 #
-let WC_A=$(wc -l ${WNINBOUND}/${TLFA}.STRIPPED | awk '{print $1}')
-Log "${WC_A} ${WNINBOUND}/${TLFA}.STRIPPED"
+let WC_A_H=$(wc -l ${WNINBOUND}/${TLFA}.H.STRIPPED | awk '{print $1}')
+let FS_A_H=$(ls -e ${WNINBOUND}/${TLFA}.H.STRIPPED | awk '{print $5}')
+Log "Total Admin Hounslow:  ${WC_A_H}"
+Log "  File Size Hounslow:  ${FS_A_H}"
+
+let WC_A_D=$(wc -l ${WNINBOUND}/${TLFA}.D.STRIPPED | awk '{print $1}')
+let FS_A_D=$(ls -e ${WNINBOUND}/${TLFA}.D.STRIPPED | awk '{print $5}')
+Log "Total Admin Docklands: ${WC_A_D}"
+Log "  File Size Docklands: ${FS_A_D}"
+
+if [[ $WC_A_H -ne $WC_A_D || $FS_A_H -ne $FS_A_D ]]; then
+	Log "The two TLFA extract files are different - sort/merging"
+	SORT_KEYS="1.9,1.27 -k 2.42,2.49 -k 3.66,3.84"
+	sort -k ${SORT_KEYS} -o ${WNINBOUND}/${TLFA}.STRIPPED -u ${WNINBOUND}/${TLFA}.H.STRIPPED ${WNINBOUND}/${TLFA}.D.STRIPPED
+	let STATUS=$?
+	Log "SORT existed with status: ${STATUS}"
+	rm -f ${WNINBOUND}/${TLFA}.H.STRIPPED ${WNINBOUND}/${TLFA}.D.STRIPPED
+else
+	Log "The two TLFA extract files are the same"
+	mv -f ${WNINBOUND}/${TLFA}.H.STRIPPED ${WNINBOUND}/${TLFA}.STRIPPED
+	rm -f ${WNINBOUND}/${TLFA}.D.STRIPPED
+fi
+
 #mv -f ${WNINBOUND}/${TLFA}.STRIPPED ${WNINBOUND}/${TLFA}
 #
 # Now copy TLFA to $WNDATA for GL script to use
@@ -389,9 +488,33 @@ fi
 #
 # Now for the RECON
 #
-let WC_R=$(wc -l ${WNINBOUND}/${RECON}.STRIPPED | awk '{print $1}')
-Log "${WC_R} ${WNINBOUND}/${RECON}.STRIPPED"
+let WC_R_H=$(wc -l ${WNINBOUND}/${RECON}.H.STRIPPED | awk '{print $1}')
+let FS_R_H=$(ls -e ${WNINBOUND}/${RECON}.H.STRIPPED | awk '{print $5}')
+Log "Total Recon Hounslow:  ${WC_R_H}"
+Log "  File Size Hounslow:  ${FS_R_H}"
+
+let WC_R_D=$(wc -l ${WNINBOUND}/${RECON}.D.STRIPPED | awk '{print $1}')
+let FS_R_D=$(ls -e ${WNINBOUND}/${RECON}.D.STRIPPED | awk '{print $5}')
+Log "Total Recon Docklands: ${WC_R_D}"
+Log "  File Size Docklands: ${FS_R_D}"
+
+if [[ $WC_R_H -ne $WC_R_D || $FS_R_H -ne $FS_R_D ]]; then
+	Log "The two RECON extract files are different - sort/merging"
+	SORT_KEYS="1.1,1.69"
+	sort -k ${SORT_KEYS} -o ${WNINBOUND}/${RECON}.STRIPPED -u ${WNINBOUND}/${RECON}.H.STRIPPED ${WNINBOUND}/${RECON}.D.STRIPPED
+	let STATUS=$?
+	Log "SORT existed with status: ${STATUS}"
+	rm -f ${WNINBOUND}/${RECON}.H.STRIPPED ${WNINBOUND}/${RECON}.D.STRIPPED
+else
+	Log "The two RECON extract files are the same"
+	mv -f ${WNINBOUND}/${RECON}.H.STRIPPED ${WNINBOUND}/${RECON}.STRIPPED
+	rm -f ${WNINBOUND}/${RECON}.D.STRIPPED
+fi
+
 mv -f ${WNINBOUND}/${RECON}.STRIPPED ${WNINBOUND}/SB.RECON.${C_MODE}
+ls -etr ${WNINBOUND}/SB.RECON.${C_MODE}
+digest -a md5 ${WNINBOUND}/SB.RECON.${C_MODE}
+
 #
 # Now copy this file to other site
 #
