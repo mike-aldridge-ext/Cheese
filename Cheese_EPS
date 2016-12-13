@@ -98,6 +98,12 @@ fi
 
 C_ENV="SBP1"
 C_MODE="PROD"
+C_HOST=$(hostname)
+if [[ ${C_HOST} == ltc* ]]; then
+	C_LOCAL="H"
+else
+	C_LOCAL="D"
+fi
 
 if [[ "$1" == "-env" ]]; then
 	shift
@@ -141,16 +147,16 @@ fi
 Log "Processing Extract files in Directory: ${X_DIR}"
 
 TLF="${X_DIR}/SB.EXTRACT.${C_MODE}.TLF"
-TLFA="${X_DIR}/SB.EXTRACT.${C_MODE}.TLFA"
-RECON="${X_DIR}/SB.EXTRACT.${C_MODE}.RECON"
+TLFA="${X_DIR}/SB.EXTRACT.${C_MODE}.TLFA.${C_LOCAL}"
+RECON="${X_DIR}/SB.EXTRACT.${C_MODE}.RECON.${C_LOCAL}"
 
 Log "Base name for TLF:  ${TLF}"
 Log "Base name for TLFA: ${TLFA}"
 Log "Base name for RECON: ${RECON}"
 
-TLF_2=${TLF}.$(TZ=Europe/London+24 date +%Y-%m-%d)
-TLF_1=${TLF}.$(TZ=Europe/London    date +%Y-%m-%d)
-TLF_0=${TLF}.$(TZ=Europe/London-24 date +%Y-%m-%d)
+TLF_2=${TLF}.$(TZ=Europe/London+24 date +%Y-%m-%d).${C_LOCAL}
+TLF_1=${TLF}.$(TZ=Europe/London    date +%Y-%m-%d).${C_LOCAL}
+TLF_0=${TLF}.$(TZ=Europe/London-24 date +%Y-%m-%d).${C_LOCAL}
 #
 # -2 file should always exist
 #
