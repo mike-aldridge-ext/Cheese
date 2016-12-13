@@ -1,99 +1,109 @@
 #!/bin/ksh
-function Usage {
-	print - $1
-	print ""
-	print "'Cheese_EPS' is a utiliy to process extract files on BASE24."
-	print "The -2 TLF Extract is assume to exist and be dated."
-	print "The 0 TLF Extract is waited for and dated."
-	print "The -1 TLF Extract is waited for and dated."
-	print "The three Extract files are then SCPd to both PM boxes."
-	print "The -2 file is then renamed to .ARCHIVE."
-	print "The 0 extract is deleted (no longer required)."
-	print "The TLFA Extract is then waited for and SCPd."
-	print "The TLFA is then renamed to TLFA.ARCHIVE."
-	print ""
-	print "The Production envionment SBP1 is assumed."
-	print "This can be overridden using -env <ENV>"
-	print "where <ENV> can be PM, SBD1, SBM1 or SBT1"
-	exit 1
-}
+#function Usage {
+#	print - $1
+#	print ""
+#	print "'Cheese2_EPS' is a utiliy to process extract files on BASE24."
+#	print "The -2 TLF Extract is assume to exist and be dated."
+#	print "The 0 TLF Extract is waited for and dated."
+#	print "The -1 TLF Extract is waited for and dated."
+#	print "The three Extract files are then SCPd to both PM boxes."
+#	print "The -2 file is then renamed to .ARCHIVE."
+#	print "The 0 extract is deleted (no longer required)."
+#	print "The TLFA Extract is then waited for and SCPd."
+#	print "The TLFA is then renamed to TLFA.ARCHIVE."
+#	print ""
+#	print "The Production envionment SBP1 is assumed."
+#	print "This can be overridden using -env <ENV>"
+#	print "where <ENV> can be PM, SBD1, SBM1 or SBT1"
+#	exit 1
+#}
 
 function Log {
-	TEXT=$1
-	TS=$(date +'%Y-%m-%d %H:%M:%S')
-	print - $TS $TEXT
+	L_TEXT=$*
+	L_TS=$(date +'%Y-%m-%d %H:%M:%S')
+	L_DATE=$(date +'%F')
+	print - "$L_TS (Cheese3_EPS:$C_ENV.$C_LOCAL) $L_TEXT" >> ${C_PWD}/Cheese_EPS_${L_DATE}.log
 }
 
 function WaitFT {
-	X_FILE="${X_DIR}/$1"
+	X_FILE=$1
 	shift
-	TLF_FILE=$1
+	FILE_NAME=$1
 	shift
-	Log "Waiting for ${TLF_FILE} to be Extracted to ${X_FILE}"
-	while [[ ! -f ${X_FILE} ]];
+	for Z_FILE in ${FILE_NAME}.*.zip; 
 	do
-		sleep 10
+		if [[ -f ${Z_FILE} ]]; then
+			Log "Non Ack'd previous Zip found: ${Z_FILE} - Resending"
+			scp -p -q ${Z_FILE} ${PM_USER}@${PM_HOST}:${PM_INBOUND}
+			STATUS=$?
+			if [[ $STATUS -ne 0 ]]; then
+				Log "scp failed with status: $STATUS"
+			fi
+		fi
 	done
+	
 	Log "Extract started to ${X_FILE} - waiting for extract to complete"
 	let EXTRACTING=1
+	if [[ ${X_FILE} == ${RECON_X_FILE} ]]; then
+		TRAILER="^FTRECON"
+	else
+		TRAILER="^000086FTTLF"
+	fi
 	while [[ ${EXTRACTING} -eq 1 ]];
 	do
 		sleep 10
-		tail -1 ${X_FILE} | egrep -s "^000086FTTLF"
+		tail -1 ${X_FILE} | egrep -s $TRAILER
 		EXTRACTING=$?
 		FSIZE=$(ls -e ${X_FILE} | awk '{print $5}')
 		Log "Current EOF: ${FSIZE}"
 	done
 	Log "Extraction of ${X_FILE} Complete"
-	mv -f ${X_FILE} ${TLF_FILE}
-	Log "Extract File ${X_FILE} Renamed To ${TLF_FILE}"
-}
-
-function WaitEOF {
-	X_FILE="${X_DIR}/$1"
-	shift
-	RECON_FILE=$1
-	shift
-	Log "Waiting for ${RECON_FILE} to be Extracted to ${X_FILE}"
-	while [[ ! -f ${X_FILE} ]];
-	do
-		sleep 10
-	done
-	Log "Extract started to ${X_FILE} - waiting for extract to complete"
-	let EXTRACTING=1
-	PFSIZE=$(ls -e ${X_FILE} | awk '{print $5}')
-	while [[ ${EXTRACTING} -eq 1 ]];
-	do
-		sleep 30
-		FSIZE=$(ls -e ${X_FILE} | awk '{print $5}')
-		if [[ $FSIZE == $PFSIZE ]]; then
-			let EXTRACTING=0
-		else
-			PFSIZE=$FSIZE
+	TS=$(date +'%Y-%m-%d-%H-%M-%S')
+	FILE_NAME_TS=${FILE_NAME}.${TS}
+	mv -f ${X_FILE} ${FILE_NAME_TS}
+	Log "Extract File ${X_FILE} Renamed To ${FILE_NAME_TS}"
+	let FS=$(ls -e ${FILE_NAME_TS} | awk '{print $5}')
+	let WC=$(wc -l ${FILE_NAME_TS} | awk '{print $1}')
+	let WC=WC-2
+	MD5=$(digest -a md5 ${FILE_NAME_TS})
+	Log "Extract file: ${FILE_NAME_TS}, Transactions: ${WC}, EOF: ${FS}, Digest: ${MD5}"
+	zip ${FILE_NAME_TS}.zip ${FILE_NAME_TS}
+	STATUS=$?
+	if [[ $STATUS -eq 0 ]]; then
+		Log "Extract file ${FILE_NAME_TS} zipped to ${FILE_NAME_TS}.zip"
+		rm -f ${FILE_NAME_TS}
+		Log "SCPing ${FILE_NAME_TS}.zip to ${PM_HOST}"
+		scp -p -q ${FILE_NAME_TS}.zip ${PM_USER}@${PM_HOST}:${PM_INBOUND}
+		STATUS=$?
+		if [[ $STATUS -ne 0 ]]; then
+			Log "Unable to scp ${FILE_NAME_TS}.zip to ${PM_HOST} (scp failed with status: ${STATUS})"
 		fi
-		Log "Current EOF: ${FSIZE}"
-	done
-	Log "Extraction of ${X_FILE} Complete"
-	mv -f ${X_FILE} ${RECON_FILE}
-	Log "Extract File ${X_FILE} Renamed To ${RECON_FILE}"
+	else
+		Log "Unable to zip file ${FILE_NAME_TS} (zip failed with status: ${STATUS})"
+		mv -f ${FILE_NAME_TS} ${X_FILE}
+		Log "Extract File ${FILE_NAME_TS} Renamed Back To ${X_FILE}"
+	fi
 }
 
-Log "BASE24 Cheese Starting to Grate"
-Log "Cheese_EPS v0.4 26th October 2016"
-Log "(c) AEVI 2016"
+function HandleAck {
+	ACK_FILE=$1
+	shift
+	Log "Ack file found: ${ACK_FILE}"
+	BASE_NAME=${ACK_FILE%.*}
+	if [[ -f ${BASE_NAME}.zip ]]; then
+		rm -f ${BASE_NAME}.zip
+		Log "${BASE_NAME} Received OK.  Zip Removed"
+	else
+		Log "Ack received for non-existant Zip"
+	fi
+	rm -f ${ACK_FILE}
+}
 
-print ""
-print "       #####                                            ####### ######   #####"
-print "     #     #  #    #  ######  ######   ####   ######    #       #     # #     #"
-print "    #        #    #  #       #       #       #          #       #     # #"
-print "   #        ######  #####   #####    ####   #####  ###  #####   ######   #####"
-print "  #        #    #  #       #            #  #            #       #             #"
-print " #     #  #    #  #       #       #    #  #             #       #       #     #"
-print " #####   #    #  ######  ######   ####   ######         ####### #        #####"
-print ""
-
-if [[ "$1" == "-?" || "$1" == "-help" ]]; then
-	Usage "Cheese Usage"
+C_HOST=$(hostname)
+if [[ ${C_HOST} == ltc* ]]; then
+	C_LOCAL="H"
+else
+	C_LOCAL="D"
 fi
 
 C_ENV="SBP1"
@@ -102,13 +112,33 @@ C_MODE="PROD"
 if [[ "$1" == "-env" ]]; then
 	shift
 	if [[ "$1" == "" ]]; then
-		Usage "No Environment name specified"
+		Log "No Environment name specified"
+		exit 1
 	fi
 	C_ENV=$1
 	shift
 fi
 
-Log "Processing for Environment: ${C_ENV}"
+C_PWD=${PWD}
+
+#print ""
+#print "       #####                                           #####       ####### ######   #####"
+#print "     #     #  #    #  ######  ######   ####   ###### #     #       #       #     # #     #"
+#print "    #        #    #  #       #       #       #            #        #       #     # #"
+#print "   #        ######  #####   #####    ####   #####   #####   #####  #####   ######   #####"
+#print "  #        #    #  #       #            #  #      #                #       #             #"
+#print " #     #  #    #  #       #       #    #  #      #                 #       #       #     #"
+#print " #####   #    #  ######  ######   ####   ###### #######            ####### #        #####"
+#print ""
+
+#if [[ "$1" == "-?" || "$1" == "-help" ]]; then
+#	Usage "Cheese2 Usage"
+#fi
+
+Log "BASE24 Cheese3 Starting to Grate"
+Log "Cheese3_EPS v0.1 1st November 2016"
+Log "(c) AEVI 2016"
+Log "Processing for Environment: ${C_ENV}.${C_LOCAL}"
 
 if [[ $C_ENV != "SBP1" ]]; then
 	C_MODE="TEST"
@@ -119,174 +149,87 @@ Log "Running in Mode: ${C_MODE}"
 #
 # Set Base Directory Name
 #
-if [[ $C_ENV == "PM" ]]; then
-	X_DIR="/app/aci/PM74/SBT1/Cycle/wnscript/temp/FILES/CheeseEater"
-elif [[ $C_ENV == "SBD1" ]]; then
-	X_DIR="/app/db/b24oltp/SBD1"
+if [[ $C_ENV == "SBD1" ]]; then
+	C_USER="b24sbd1"
 elif [[ $C_ENV == "SBM1" ]]; then
-	X_DIR="/app/db/b24oltp/SBP1"
+	C_USER="b24sbp1"
 elif [[ $C_ENV == "SBP1" ]]; then
-	X_DIR="/app/db/b24oltp/SBP1"
+	C_USER="b24sbp1"
 elif [[ $C_ENV == "SBT1" ]]; then
-	C_HOST=$(hostname)
-	if [[ $C_HOST == "ltcwnsb-t02" ]]; then
-		X_DIR="/app/db/b24oltp/STH1"
-	else
-		X_DIR="/app/db/b24oltp/STD1"
-	fi
+	C_USER="b24sbt1"
 else
-	Usage "Invalid -env Envioronment specified"
+	Log "Invalid -env Envioronment specified"
+	exit 2
 fi
 
-Log "Processing Extract files in Directory: ${X_DIR}"
+. /export/home/${C_USER}/.profile
+cd ${B24OLTP}
 
-TLF="${X_DIR}/SB.EXTRACT.${C_MODE}.TLF"
-TLFA="${X_DIR}/SB.EXTRACT.${C_MODE}.TLFA"
-RECON="${X_DIR}/SB.EXTRACT.${C_MODE}.RECON"
+Log "Processing Extract files in Directory: ${B24OLTP}"
 
-Log "Base name for TLF:  ${TLF}"
-Log "Base name for TLFA: ${TLFA}"
-Log "Base name for RECON: ${RECON}"
+TLF_FILE="C.${C_ENV}.${C_LOCAL}.EXTRACT.${C_MODE}.TLF"
+TLF_EOD_FILE="C.${C_ENV}.${C_LOCAL}.EXTRACT.EOD.${C_MODE}.TLF"
+RECON_FILE="C.${C_ENV}.${C_LOCAL}.RECON.${C_MODE}"
 
-TLF_2=${TLF}.$(TZ=Europe/London+24 date +%Y-%m-%d)
-TLF_1=${TLF}.$(TZ=Europe/London    date +%Y-%m-%d)
-TLF_0=${TLF}.$(TZ=Europe/London-24 date +%Y-%m-%d)
-#
-# -2 file should always exist
-#
-Log "Looking for -2 Extract: ${TLF_2}"
-if [[ ! -f ${TLF_2} ]]; then
-	Usage "-2 Extract file ${TLF_2} Does not Exist"
-fi
+TLF_X_FILE="tx13"
+TLF_EOD_X_FILE="tx11"
+RECON_X_FILE="reconx2"
 
-Log "Found ${TLF_2}"
+Log "Base names for TLF:     ${TLF_X_FILE}    => ${TLF_FILE}"
+Log "Base names for TLF_EOD: ${TLF_EOD_X_FILE}    => ${TLF_EOD_FILE}"
+Log "Base names for RECON:   ${RECON_X_FILE} => ${RECON_FILE}"
 
-WaitFT tx4 ${TLF_0}
-#Strip ${TLF_0} ${TLF_0}.STRIPPED ${C_DATE} ${C_TIME}
-
-#
-# 0 file is creates manually through an extract.
-# Wait for it to be created and wait for FT (so we know it's finished
-#
-#print "Time to run -1 to -1 Extract"
-WaitFT tx5 ${TLF_1}
-#Strip ${TLF_1} ${TLF_1}.STRIPPED ${C_DATE} ${C_TIME}
-
-#
-# Get record counts
-#
-let WC_2=$(wc -l ${TLF_2} | awk '{print $1}')
-let WC_1=$(wc -l ${TLF_1} | awk '{print $1}')
-let WC_0=$(wc -l ${TLF_0} | awk '{print $1}')
-
-Log "Extracts Contains Following Numbers of Records:"
-Log "${WC_2} ${TLF_2}"
-Log "${WC_1} ${TLF_1}"
-Log "${WC_0} ${TLF_0}"
-let RECS=WC_2+WC_1+WC_0-6
-Log "Total Transaction Records: ${RECS}"
-#
-# Now for file transfers
-#
 Log "Setting SCP Variables"
-if [[ $C_ENV == "PM" ]]; then
-	H_HOST="ltcwnrec-t01"
-	D_HOST=""
-	C_USER="sbadmint"
-	C_INBOUND="/app/aci/PM74/SBT1/Cycle/testdata"
-elif [[ $C_ENV == "SBD1" ]]; then
-	H_HOST=""
-	D_HOST="tc2wnrec-t01"
-	C_USER="trans-sb"
-	C_INBOUND="/app/aci/PM74/SBD1/Cycle/testdata"
+if [[ $C_ENV == "SBD1" ]]; then
+	PM_HOST=""
+	PM_USER="trans-sb"
+	PM_INBOUND="app/aci/PM74/SBD1/Cycle/testdata"
 elif [[ $C_ENV == "SBM1" ]]; then
-	H_HOST="ltcwnrec-t01"
-	D_HOST="tc2wnrec-t01"
-	C_USER="trans-sb"
-	C_INBOUND="/app/aci/PM74/SBP1/Cycle/testdata"
+	PM_HOST="ltcwnrec-t01"
+	PM_USER="trans-sb"
+	PM_INBOUND="app/aci/PM74/SBP1/Cycle/testdata"
 elif [[ $C_ENV == "SBP1" ]]; then
-	H_HOST="ltcwnrec-p03"
-	D_HOST="tc2wnrec-p03"
-	C_USER="trans-sb"
-	C_INBOUND="/app3/export/trans-sb/inbound"
+	PM_HOST="ltcwnrec-p03"
+	PM_USER="trans-sb"
+	PM_INBOUND="/app3/export/trans-sb/inbound"
 elif [[ $C_ENV == "SBT1" ]]; then
-	H_HOST="ltcwnrec-t01"
-	D_HOST=""
-	C_USER="trans-sb"
-	C_INBOUND="/app/aci/PM74/SBT1/Cycle/testdata"
+	PM_HOST="ltcwnrec-t01"
+	PM_USER="trans-sb"
+	PM_INBOUND="/app/aci/PM74/SBT1/Cycle/testdata"
 else
-	Usage "Invalid -env Enviornment: ${C_ENV}"
+	Log "Invalid -env Enviornment: ${C_ENV}"
+	exit 3
 fi
-Log "Hounslow Host:  ${H_HOST}"
-Log "Docklands Host: ${D_HOST}"
-Log "User Name:      ${C_USER}"
-Log "Destinations:   ${C_INBOUND}"
 
-if [[ "$H_HOST" != "" ]]; then
-	Log "SCPing ${TLF_2} to ${H_HOST}"
-	scp -p -C ${TLF_2} ${C_USER}@${H_HOST}:${C_INBOUND}
-	Log "SCPing ${TLF_1} to ${H_HOST}"
-	scp -p -C ${TLF_1} ${C_USER}@${H_HOST}:${C_INBOUND}
-	Log "SCPing ${TLF_0} to ${H_HOST}"
-	scp -p -C ${TLF_0} ${C_USER}@${H_HOST}:${C_INBOUND}
-fi
-if [[ "$D_HOST" != "" ]]; then
-	Log "SCPing ${TLF_2} to ${D_HOST}"
-	scp -p -C ${TLF_2} ${C_USER}@${D_HOST}:${C_INBOUND}
-	Log "SCPing ${TLF_1} to ${D_HOST}"
-	scp -p -C ${TLF_1} ${C_USER}@${D_HOST}:${C_INBOUND}
-	Log "SCPing ${TLF_0} to ${D_HOST}"
-	scp -p -C ${TLF_0} ${C_USER}@${D_HOST}:${C_INBOUND}
-fi
-#
-# Roll files and clean up
-#
-Log "Renaming ${TLF_2} to ${TLF_2}.ARCHIVE"
-mv -f ${TLF_2} ${TLF_2}.ARCHIVE
-Log "Removing ${TLF_0}"
-rm -f ${TLF_0}
-#
-# Admin Extract
-#
-WaitFT tx2 ${TLFA}
-let WC_A=$(wc -l ${TLFA} | awk '{print $1}')
-Log "Extract Contains Following Numbers of Records:"
-Log "${WC_A} ${TLFA}"
+Log "PM Host:      ${PM_HOST}"
+Log "User Name:    ${PM_USER}"
+Log "Destinations: ${PM_INBOUND}"
 
-if [[ "$H_HOST" != "" ]]; then
-	Log "SCPing ${TLFA} to ${H_HOST}"
-	scp -p -C ${TLFA} ${C_USER}@${H_HOST}:${C_INBOUND}
-fi
-if [[ "$D_HOST" != "" ]]; then
-	Log "SCPing ${TLFA} to ${D_HOST}"
-	scp -p -C ${TLFA} ${C_USER}@${D_HOST}:${C_INBOUND}
-fi
-#
-# archive it
-#
-Log "Renaming ${TLFA} to ${TLFA}.ARCHIVE"
-mv -f ${TLFA} ${TLFA}.ARCHIVE
-#
-# Recon Extract - wait for Extract to start and EOF to stop changing
-#
-WaitEOF reconx1 ${RECON}
-let WC_R=$(wc -l ${RECON} | awk '{print $1}')
-Log "Extract Contains Following Numbers of Records:"
-Log "${WC_R} ${RECON}"
-
-if [[ "$H_HOST" != "" ]]; then
-	Log "SCPing ${RECON} to ${H_HOST}"
-	scp -p -C ${RECON} ${C_USER}@${H_HOST}:${C_INBOUND}
-fi
-if [[ "$D_HOST" != "" ]]; then
-	Log "SCPing ${RECON} to ${D_HOST}"
-	scp -p -C ${RECON} ${C_USER}@${D_HOST}:${C_INBOUND}
-fi
-#
-# archive it
-#
-Log "Renaming ${RECON} to ${RECON}.ARCHIVE"
-mv -f ${RECON} ${RECON}.ARCHIVE
+Log "To infinity and beyond...."
+while [[ 0 -eq 0 ]];
+do
+	#
+	# Wait for an hourly extract file or ACK file
+	#
+	ACK_FILE="*.ack"
+	#Log "Waiting for Hourly Extract or ACK file"
+	for C_FILE in ${ACK_FILE} ${TLF_X_FILE} ${TLF_EOD_X_FILE} ${RECON_X_FILE}; 
+	do
+		if [[ -f ${C_FILE} ]]; then
+			if [[ ${C_FILE} == ${TLF_X_FILE} ]]; then
+				WaitFT ${TLF_X_FILE} ${TLF_FILE}
+			elif [[ ${C_FILE} == ${TLF_EOD_X_FILE} ]]; then
+				WaitFT ${TLF_EOD_X_FILE} ${TLF_EOD_FILE}
+			elif [[ ${C_FILE} == ${RECON_X_FILE} ]]; then
+				WaitFT ${RECON_X_FILE} ${RECON_FILE}
+			else
+				HandleAck ${C_FILE}
+			fi
+		else
+			sleep 15
+		fi
+	done
+done
 Log "Cheese Successfully Grated"
 ######################
 # End Of Script
