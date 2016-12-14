@@ -332,21 +332,23 @@ TEMP_F="${WNINBOUND}/${TLF}.TEMP"
 #
 # Start with the Header from the -1 file
 #
-head -1 ${WNINBOUND}/${TLF_1}.H.STRIPPED > ${TLF_X}.H
-head -1 ${WNINBOUND}/${TLF_1}.D.STRIPPED > ${TLF_X}.D
+#head -1 ${WNINBOUND}/${TLF_1}.H.STRIPPED > ${TLF_X}.H
+#head -1 ${WNINBOUND}/${TLF_1}.D.STRIPPED > ${TLF_X}.D
 
 #
 # Now add the records from the -2 file
 #
 let RECS=WC_2_H-1
 head -${RECS} ${WNINBOUND}/${TLF_2}.H.STRIPPED > ${TEMP_F}
+rm -f ${WNINBOUND}/${TLF_2}.H.STRIPPED
 let RECS=WC_2_H-2
-tail -${RECS} ${TEMP_F} >> ${TLF_X}.H
+tail -${RECS} ${TEMP_F} > ${TLF_X}.H
 
 let RECS=WC_2_D-1
 head -${RECS} ${WNINBOUND}/${TLF_2}.D.STRIPPED > ${TEMP_F}
+rm -f ${WNINBOUND}/${TLF_2}.D.STRIPPED
 let RECS=WC_2_D-2
-tail -${RECS} ${TEMP_F} >> ${TLF_X}.D
+tail -${RECS} ${TEMP_F} > ${TLF_X}.D
 
 #
 # Now add the records from the -1 file
@@ -366,35 +368,32 @@ tail -${RECS} ${TEMP_F} >> ${TLF_X}.D
 #
 let RECS=WC_0_H-1
 head -${RECS} ${WNINBOUND}/${TLF_0}.H.STRIPPED > ${TEMP_F}
+rm -f ${WNINBOUND}/${TLF_0}.H.STRIPPED
 let RECS=WC_0_H-2
 tail -${RECS} ${TEMP_F} >> ${TLF_X}.H
 
 let RECS=WC_0_D-1
 head -${RECS} ${WNINBOUND}/${TLF_0}.D.STRIPPED > ${TEMP_F}
+rm -f ${WNINBOUND}/${TLF_0}.D.STRIPPED
 let RECS=WC_0_D-2
 tail -${RECS} ${TEMP_F} >> ${TLF_X}.D
 
 #
 # Now add the Trailer from the -1 file
 #
-tail -1 ${WNINBOUND}/${TLF_1}.H.STRIPPED >> ${TLF_X}.H
-tail -1 ${WNINBOUND}/${TLF_1}.D.STRIPPED >> ${TLF_X}.D
-
-rm -f ${TEMP_F}
-rm -f ${WNINBOUND}/${TLF_2}.H.STRIPPED
-rm -f ${WNINBOUND}/${TLF_1}.H.STRIPPED
-rm -f ${WNINBOUND}/${TLF_0}.H.STRIPPED
+#tail -1 ${WNINBOUND}/${TLF_1}.H.STRIPPED >> ${TLF_X}.H
+#tail -1 ${WNINBOUND}/${TLF_1}.D.STRIPPED >> ${TLF_X}.D
 
 let WC_X_H=$(wc -l ${TLF_X}.H | awk '{print $1}')
 let FS_X_H=$(ls -e ${TLF_X}.H | awk '{print $5}')
-let RECS_H=WC_X_H-2
-Log "Total Transactions Hounslow:  ${RECS_H}"
+#let RECS_H=WC_X_H-2
+Log "Total Transactions Hounslow:  ${WC_X_H}"
 Log "         File Size Hounslow:  ${FS_X_H}"
 
 let WC_X_D=$(wc -l ${TLF_X}.D | awk '{print $1}')
 let FS_X_D=$(ls -e ${TLF_X}.D | awk '{print $5}')
-let RECS_D=WC_X_D-2
-Log "Total Transactions Docklands: ${RECS_D}"
+#let RECS_D=WC_X_D-2
+Log "Total Transactions Docklands: ${WC_X_D}"
 Log "         File Size Docklands: ${FS_X_D}"
 
 if [[ $WC_X_H -ne $WC_X_D || $FS_X_H -ne $FS_X_D ]]; then
@@ -411,6 +410,21 @@ else
 fi
 
 #
+# Now and Header and Trailer
+#
+head -1 ${WNINBOUND}/${TLF_1}.H.STRIPPED > ${TEMP_F}
+cat ${TLF_X} >> ${TEMP_F}
+tail -1 ${WNINBOUND}/${TLF_1}.H.STRIPPED >> ${TEMP_F}
+mv -f ${TEMP_F} ${TLF_X}
+
+#
+# Clean up files
+#
+#rm -f ${TEMP_F}
+rm -f ${WNINBOUND}/${TLF_1}.H.STRIPPED
+rm -f ${WNINBOUND}/${TLF_1}.D.STRIPPED
+
+#
 # Now copy TLF to $WNDATA for GL script to use
 #
 TLF_GL=${WNDATA}/${TLF}
@@ -421,6 +435,7 @@ digest -a md5 ${TLF_GL}
 let WC_GL=$(wc -l ${TLF_GL} | awk '{print $1}')
 let RECS=WC_GL-2
 Log "Total Transaction Records: ${RECS}"
+
 #
 # Now copy this file to other site
 #
@@ -450,10 +465,24 @@ Log "  File Size Docklands: ${FS_A_D}"
 
 if [[ $WC_A_H -ne $WC_A_D || $FS_A_H -ne $FS_A_D ]]; then
 	Log "The two TLFA extract files are different - sort/merging"
+	let WC_1=WC_A_H-1
+	let WC_2=WC_A_H-2
+	tail -${WC_1} ${WNINBOUND}/${TLFA}.H.STRIPPED | head -{WC_2} > ${WNINBOUND}/${TLFA}.H.STRIPPED.RAW
+	
+	let WC_1=WC_A_D-1
+	let WC_2=WC_A_D-2
+	tail -${WC_1} ${WNINBOUND}/${TLFA}.D.STRIPPED | head -{WC_2} > ${WNINBOUND}/${TLFA}.D.STRIPPED.RAW
+	
 	SORT_KEYS="1.9,1.27 -k 2.42,2.49 -k 3.66,3.84"
-	sort -k ${SORT_KEYS} -o ${WNINBOUND}/${TLFA}.STRIPPED -u ${WNINBOUND}/${TLFA}.H.STRIPPED ${WNINBOUND}/${TLFA}.D.STRIPPED
+	sort -k ${SORT_KEYS} -o ${WNINBOUND}/${TLFA}.STRIPPED.RAW -u ${WNINBOUND}/${TLFA}.H.STRIPPED.RAW ${WNINBOUND}/${TLFA}.D.STRIPPED.RAW
 	let STATUS=$?
 	Log "SORT existed with status: ${STATUS}"
+	rm -f ${WNINBOUND}/${TLFA}.H.STRIPPED.RAW ${WNINBOUND}/${TLFA}.D.STRIPPED.RAW
+	
+	head -1 ${WNINBOUND}/${TLFA}.H.STRIPPED > ${WNINBOUND}/${TLFA}.STRIPPED
+	cat ${WNINBOUND}/${TLFA}.STRIPPED.RAW >> ${WNINBOUND}/${TLFA}.STRIPPED
+	rm -f ${WNINBOUND}/${TLFA}.STRIPPED.RAW
+	tail -1 ${WNINBOUND}/${TLFA}.H.STRIPPED > ${WNINBOUND}/${TLFA}.STRIPPED
 	rm -f ${WNINBOUND}/${TLFA}.H.STRIPPED ${WNINBOUND}/${TLFA}.D.STRIPPED
 else
 	Log "The two TLFA extract files are the same"
@@ -461,7 +490,6 @@ else
 	rm -f ${WNINBOUND}/${TLFA}.D.STRIPPED
 fi
 
-#mv -f ${WNINBOUND}/${TLFA}.STRIPPED ${WNINBOUND}/${TLFA}
 #
 # Now copy TLFA to $WNDATA for GL script to use
 #
