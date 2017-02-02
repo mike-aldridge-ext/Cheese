@@ -9,8 +9,7 @@ function Usage {
 	print "The three Extract files are then SCPd to both PM boxes."
 	print "The -2 file is then renamed to .ARCHIVE."
 	print "The 0 extract is deleted (no longer required)."
-	print "The TLFA Extract is then waited for and SCPd."
-	print "The TLFA is then renamed to TLFA.ARCHIVE."
+	print "The logic if repeated for the TLFA and RECON extracts."
 	print ""
 	print "The Production envionment SBP1 is assumed."
 	print "This can be overridden using -env <ENV>"
@@ -27,60 +26,39 @@ function Log {
 function WaitFT {
 	X_FILE="${X_DIR}/$1"
 	shift
-	TLF_FILE=$1
+	FILE_NAME=$1
 	shift
-	Log "Waiting for ${TLF_FILE} to be Extracted to ${X_FILE}"
+	Log "Waiting for ${FILE_NAME} to be Extracted to ${X_FILE}"
 	while [[ ! -f ${X_FILE} ]];
 	do
 		sleep 10
 	done
+
 	Log "Extract started to ${X_FILE} - waiting for extract to complete"
 	let EXTRACTING=1
+	if [[ ${X_FILE} == *recon* ]]; then
+		TRAILER="^FTRECON"
+	else
+		TRAILER="^000086FTTLF"
+	fi
+
 	while [[ ${EXTRACTING} -eq 1 ]];
 	do
 		sleep 10
-		tail -1 ${X_FILE} | egrep -s "^000086FTTLF"
+		tail -1 ${X_FILE} | egrep -s $TRAILER
 		EXTRACTING=$?
 		FSIZE=$(ls -e ${X_FILE} | awk '{print $5}')
 		Log "Current EOF: ${FSIZE}"
 	done
-	Log "Extraction of ${X_FILE} Complete"
-	mv -f ${X_FILE} ${TLF_FILE}
-	Log "Extract File ${X_FILE} Renamed To ${TLF_FILE}"
-}
 
-function WaitEOF {
-	X_FILE="${X_DIR}/$1"
-	shift
-	RECON_FILE=$1
-	shift
-	Log "Waiting for ${RECON_FILE} to be Extracted to ${X_FILE}"
-	while [[ ! -f ${X_FILE} ]];
-	do
-		sleep 10
-	done
-	Log "Extract started to ${X_FILE} - waiting for extract to complete"
-	let EXTRACTING=1
-	PFSIZE=$(ls -e ${X_FILE} | awk '{print $5}')
-	while [[ ${EXTRACTING} -eq 1 ]];
-	do
-		sleep 30
-		FSIZE=$(ls -e ${X_FILE} | awk '{print $5}')
-		if [[ $FSIZE == $PFSIZE ]]; then
-			let EXTRACTING=0
-		else
-			PFSIZE=$FSIZE
-		fi
-		Log "Current EOF: ${FSIZE}"
-	done
 	Log "Extraction of ${X_FILE} Complete"
-	mv -f ${X_FILE} ${RECON_FILE}
-	Log "Extract File ${X_FILE} Renamed To ${RECON_FILE}"
+	mv -f ${X_FILE} ${FILE_NAME}
+	Log "Extract File ${X_FILE} Renamed To ${FILE_NAME}"
 }
 
 Log "BASE24 Cheese Starting to Grate"
-Log "Cheese_EPS v0.4 26th October 2016"
-Log "(c) AEVI 2016"
+Log "Cheese_EPS v0.5 16th January 2017"
+Log "(c) AEVI 2016, 2017"
 
 print ""
 print "       #####                                            ####### ######   #####"
@@ -98,6 +76,12 @@ fi
 
 C_ENV="SBP1"
 C_MODE="PROD"
+C_HOST=$(hostname)
+if [[ ${C_HOST} == ltc* ]]; then
+	C_LOCAL="H"
+else
+	C_LOCAL="D"
+fi
 
 if [[ "$1" == "-env" ]]; then
 	shift
@@ -148,46 +132,6 @@ Log "Base name for TLF:  ${TLF}"
 Log "Base name for TLFA: ${TLFA}"
 Log "Base name for RECON: ${RECON}"
 
-TLF_2=${TLF}.$(TZ=Europe/London+24 date +%Y-%m-%d)
-TLF_1=${TLF}.$(TZ=Europe/London    date +%Y-%m-%d)
-TLF_0=${TLF}.$(TZ=Europe/London-24 date +%Y-%m-%d)
-#
-# -2 file should always exist
-#
-Log "Looking for -2 Extract: ${TLF_2}"
-if [[ ! -f ${TLF_2} ]]; then
-	Usage "-2 Extract file ${TLF_2} Does not Exist"
-fi
-
-Log "Found ${TLF_2}"
-
-WaitFT tx4 ${TLF_0}
-#Strip ${TLF_0} ${TLF_0}.STRIPPED ${C_DATE} ${C_TIME}
-
-#
-# 0 file is creates manually through an extract.
-# Wait for it to be created and wait for FT (so we know it's finished
-#
-#print "Time to run -1 to -1 Extract"
-WaitFT tx5 ${TLF_1}
-#Strip ${TLF_1} ${TLF_1}.STRIPPED ${C_DATE} ${C_TIME}
-
-#
-# Get record counts
-#
-let WC_2=$(wc -l ${TLF_2} | awk '{print $1}')
-let WC_1=$(wc -l ${TLF_1} | awk '{print $1}')
-let WC_0=$(wc -l ${TLF_0} | awk '{print $1}')
-
-Log "Extracts Contains Following Numbers of Records:"
-Log "${WC_2} ${TLF_2}"
-Log "${WC_1} ${TLF_1}"
-Log "${WC_0} ${TLF_0}"
-let RECS=WC_2+WC_1+WC_0-6
-Log "Total Transaction Records: ${RECS}"
-#
-# Now for file transfers
-#
 Log "Setting SCP Variables"
 if [[ $C_ENV == "PM" ]]; then
 	H_HOST="ltcwnrec-t01"
@@ -217,27 +161,183 @@ elif [[ $C_ENV == "SBT1" ]]; then
 else
 	Usage "Invalid -env Enviornment: ${C_ENV}"
 fi
+
 Log "Hounslow Host:  ${H_HOST}"
 Log "Docklands Host: ${D_HOST}"
 Log "User Name:      ${C_USER}"
 Log "Destinations:   ${C_INBOUND}"
 
+DATE_2=$(TZ=Europe/London+24 date +%Y-%m-%d)
+DATE_1=$(TZ=Europe/London    date +%Y-%m-%d)
+DATE_0=$(TZ=Europe/London-24 date +%Y-%m-%d)
+
+Log "Using (-2) extract files for ${DATE_2}"
+Log "Using (-1) extract files for ${DATE_1}"
+Log "Using (-0) extract files for ${DATE_0}"
+
+#
+# TLF Extracts
+#
+TLF_2=${TLF}.${DATE_2}.${C_LOCAL}
+TLF_1=${TLF}.${DATE_1}.${C_LOCAL}
+TLF_0=${TLF}.${DATE_0}.${C_LOCAL}
+#
+# Admin Extracts
+#
+TLFA_2=${TLFA}.${DATE_2}.${C_LOCAL}
+TLFA_1=${TLFA}.${DATE_1}.${C_LOCAL}
+TLFA_0=${TLFA}.${DATE_0}.${C_LOCAL}
+#
+# Recon Extracts
+#
+RECON_2=${RECON}.${DATE_2}.${C_LOCAL}
+RECON_1=${RECON}.${DATE_1}.${C_LOCAL}
+RECON_0=${RECON}.${DATE_0}.${C_LOCAL}
+
+#
+# -2 extract files should always exist
+#
+Log "Looking for -2 Extract: ${TLF_2}"
+if [[ ! -f ${TLF_2} ]]; then
+	Usage "-2 Extract file ${TLF_2} Does not Exist"
+fi
+Log "Found ${TLF_2}"
+
+Log "Looking for -2 Extract: ${TLFA_2}"
+if [[ ! -f ${TLFA_2} ]]; then
+	Usage "-2 Extract file ${TLFA_2} Does not Exist"
+fi
+Log "Found ${TLFA_2}"
+
+Log "Looking for -2 Extract: ${RECON_2}"
+if [[ ! -f ${RECON_2} ]]; then
+	Usage "-2 Extract file ${RECON_2} Does not Exist"
+fi
+Log "Found ${RECON_2}"
+
+#
+# Get record counts
+#
+let WC_2=$(wc -l ${TLF_2} | awk '{print $1}')
+let WCA_2=$(wc -l ${TLFA_2} | awk '{print $1}')
+let WCR_2=$(wc -l ${RECON_2} | awk '{print $1}')
+
+Log "-2 Extracts Files Contain Following Numbers of Records:"
+Log "${WC_2} ${TLF_2}"
+Log "${WCA_2} ${TLFA_2}"
+Log "${WCR_2} ${RECON_2}"
+
+#
+# Now for file transfers
+#
 if [[ "$H_HOST" != "" ]]; then
 	Log "SCPing ${TLF_2} to ${H_HOST}"
 	scp -p -C ${TLF_2} ${C_USER}@${H_HOST}:${C_INBOUND}
-	Log "SCPing ${TLF_1} to ${H_HOST}"
-	scp -p -C ${TLF_1} ${C_USER}@${H_HOST}:${C_INBOUND}
-	Log "SCPing ${TLF_0} to ${H_HOST}"
-	scp -p -C ${TLF_0} ${C_USER}@${H_HOST}:${C_INBOUND}
+	Log "SCPing ${TLFA_2} to ${H_HOST}"
+	scp -p -C ${TLFA_2} ${C_USER}@${H_HOST}:${C_INBOUND}
+	Log "SCPing ${RECON_2} to ${H_HOST}"
+	scp -p -C ${RECON_2} ${C_USER}@${H_HOST}:${C_INBOUND}
 fi
 if [[ "$D_HOST" != "" ]]; then
 	Log "SCPing ${TLF_2} to ${D_HOST}"
 	scp -p -C ${TLF_2} ${C_USER}@${D_HOST}:${C_INBOUND}
-	Log "SCPing ${TLF_1} to ${D_HOST}"
-	scp -p -C ${TLF_1} ${C_USER}@${D_HOST}:${C_INBOUND}
+	Log "SCPing ${TLFA_2} to ${D_HOST}"
+	scp -p -C ${TLFA_2} ${C_USER}@${D_HOST}:${C_INBOUND}
+	Log "SCPing ${RECON_2} to ${D_HOST}"
+	scp -p -C ${RECON_2} ${C_USER}@${D_HOST}:${C_INBOUND}
+fi
+
+#
+# 0 extract files are created automatically through an extract.
+# Wait for it to be created and wait for FT (so we know it's finished
+#
+WaitFT tx16 ${TLF_0}
+WaitFT tx17 ${TLFA_0}
+WaitFT reconx5 ${RECON_0}
+
+#
+# Get record counts
+#
+let WC_0=$(wc -l ${TLF_0} | awk '{print $1}')
+let WCA_0=$(wc -l ${TLFA_0} | awk '{print $1}')
+let WCR_0=$(wc -l ${RECON_0} | awk '{print $1}')
+
+Log "-0 Extracts Files Contain Following Numbers of Records:"
+Log "${WC_0} ${TLF_0}"
+Log "${WCA_0} ${TLFA_0}"
+Log "${WCR_0} ${RECON_0}"
+
+#
+# Now for file transfers
+#
+if [[ "$H_HOST" != "" ]]; then
+	Log "SCPing ${TLF_0} to ${H_HOST}"
+	scp -p -C ${TLF_0} ${C_USER}@${H_HOST}:${C_INBOUND}
+	Log "SCPing ${TLFA_0} to ${H_HOST}"
+	scp -p -C ${TLFA_0} ${C_USER}@${H_HOST}:${C_INBOUND}
+	Log "SCPing ${RECON_0} to ${H_HOST}"
+	scp -p -C ${RECON_0} ${C_USER}@${H_HOST}:${C_INBOUND}
+fi
+if [[ "$D_HOST" != "" ]]; then
 	Log "SCPing ${TLF_0} to ${D_HOST}"
 	scp -p -C ${TLF_0} ${C_USER}@${D_HOST}:${C_INBOUND}
+	Log "SCPing ${TLFA_0} to ${D_HOST}"
+	scp -p -C ${TLFA_0} ${C_USER}@${D_HOST}:${C_INBOUND}
+	Log "SCPing ${RECON_0} to ${D_HOST}"
+	scp -p -C ${RECON_0} ${C_USER}@${D_HOST}:${C_INBOUND}
 fi
+
+#
+# -1 extract files are created automatically through an extract.
+# Wait for it to be created and wait for FT (so we know it's finished
+#
+WaitFT tx14 ${TLF_1}
+WaitFT tx15 ${TLFA_1}
+WaitFT reconx4 ${RECON_1}
+
+#
+# Get record counts
+#
+let WC_1=$(wc -l ${TLF_1} | awk '{print $1}')
+let WCA_1=$(wc -l ${TLFA_1} | awk '{print $1}')
+let WCR_1=$(wc -l ${RECON_1} | awk '{print $1}')
+
+Log "-1 Extracts Files Contain Following Numbers of Records:"
+Log "${WC_1} ${TLF_1}"
+Log "${WCA_1} ${TLFA_1}"
+Log "${WCR_1} ${RECON_1}"
+
+#
+# Now for file transfers
+#
+if [[ "$H_HOST" != "" ]]; then
+	Log "SCPing ${TLF_1} to ${H_HOST}"
+	scp -p -C ${TLF_1} ${C_USER}@${H_HOST}:${C_INBOUND}
+	Log "SCPing ${TLFA_1} to ${H_HOST}"
+	scp -p -C ${TLFA_1} ${C_USER}@${H_HOST}:${C_INBOUND}
+	Log "SCPing ${RECON_1} to ${H_HOST}"
+	scp -p -C ${RECON_1} ${C_USER}@${H_HOST}:${C_INBOUND}
+fi
+if [[ "$D_HOST" != "" ]]; then
+	Log "SCPing ${TLF_1} to ${D_HOST}"
+	scp -p -C ${TLF_1} ${C_USER}@${D_HOST}:${C_INBOUND}
+	Log "SCPing ${TLFA_1} to ${D_HOST}"
+	scp -p -C ${TLFA_1} ${C_USER}@${D_HOST}:${C_INBOUND}
+	Log "SCPing ${RECON_1} to ${D_HOST}"
+	scp -p -C ${RECON_1} ${C_USER}@${D_HOST}:${C_INBOUND}
+fi
+
+#
+# Calculate total counts
+#
+let RECS=WC_2+WC_1+WC_0-6
+let RECSA=WCA_2+WCA_1+WCA_0-6
+let RECSR=WCR_2+WCR_1+WCR_0-6
+
+Log "Total Transaction Records: ${RECS}"
+Log "Total Admin Records: ${RECSA}"
+Log "Total Recon Records: ${RECSR}"
+
 #
 # Roll files and clean up
 #
@@ -245,48 +345,17 @@ Log "Renaming ${TLF_2} to ${TLF_2}.ARCHIVE"
 mv -f ${TLF_2} ${TLF_2}.ARCHIVE
 Log "Removing ${TLF_0}"
 rm -f ${TLF_0}
-#
-# Admin Extract
-#
-WaitFT tx2 ${TLFA}
-let WC_A=$(wc -l ${TLFA} | awk '{print $1}')
-Log "Extract Contains Following Numbers of Records:"
-Log "${WC_A} ${TLFA}"
 
-if [[ "$H_HOST" != "" ]]; then
-	Log "SCPing ${TLFA} to ${H_HOST}"
-	scp -p -C ${TLFA} ${C_USER}@${H_HOST}:${C_INBOUND}
-fi
-if [[ "$D_HOST" != "" ]]; then
-	Log "SCPing ${TLFA} to ${D_HOST}"
-	scp -p -C ${TLFA} ${C_USER}@${D_HOST}:${C_INBOUND}
-fi
-#
-# archive it
-#
-Log "Renaming ${TLFA} to ${TLFA}.ARCHIVE"
-mv -f ${TLFA} ${TLFA}.ARCHIVE
-#
-# Recon Extract - wait for Extract to start and EOF to stop changing
-#
-WaitEOF reconx1 ${RECON}
-let WC_R=$(wc -l ${RECON} | awk '{print $1}')
-Log "Extract Contains Following Numbers of Records:"
-Log "${WC_R} ${RECON}"
+Log "Renaming ${TLFA_2} to ${TLFA_2}.ARCHIVE"
+mv -f ${TLFA_2} ${TLFA_2}.ARCHIVE
+Log "Removing ${TLFA_0}"
+rm -f ${TLFA_0}
 
-if [[ "$H_HOST" != "" ]]; then
-	Log "SCPing ${RECON} to ${H_HOST}"
-	scp -p -C ${RECON} ${C_USER}@${H_HOST}:${C_INBOUND}
-fi
-if [[ "$D_HOST" != "" ]]; then
-	Log "SCPing ${RECON} to ${D_HOST}"
-	scp -p -C ${RECON} ${C_USER}@${D_HOST}:${C_INBOUND}
-fi
-#
-# archive it
-#
-Log "Renaming ${RECON} to ${RECON}.ARCHIVE"
-mv -f ${RECON} ${RECON}.ARCHIVE
+Log "Renaming ${RECON_2} to ${RECON_2}.ARCHIVE"
+mv -f ${RECON_2} ${RECON_2}.ARCHIVE
+Log "Removing ${RECON_0}"
+rm -f ${RECON_0}
+
 Log "Cheese Successfully Grated"
 ######################
 # End Of Script
